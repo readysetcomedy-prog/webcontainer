@@ -388,6 +388,24 @@ button.primary:hover:not(:disabled) {
   width: 460px;
 }
 
+.env-panel.dragging {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(110, 168, 255, 0.25), 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.env-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.env-filename {
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, monospace;
+}
+
 .env-textarea {
   min-height: 200px;
   max-height: 360px;
