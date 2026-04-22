@@ -11,7 +11,7 @@ export default function Preview({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const refresh = () => setNonce((n) => n + 1);
   const openExternal = () => {
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) window.open(url, '_blank');
   };
   return (
     <div className="preview-pane">
