@@ -4,7 +4,7 @@ export type { FileSystemTree };
 
 export interface FileEntry {
   path: string;
-  content: string;
+  content: string | Uint8Array;
 }
 
 export interface LogLine {

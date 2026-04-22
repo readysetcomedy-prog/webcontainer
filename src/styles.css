@@ -436,16 +436,173 @@ button.primary:hover:not(:disabled) {
 }
 
 .main {
-  display: grid;
-  grid-template-columns: 220px 1fr 1fr;
   min-height: 0;
+  flex: 1;
 }
 
 .sidebar {
   background: var(--bg-2);
-  border-right: 1px solid var(--border);
   overflow: auto;
   padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-divider {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--fg-dim);
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.projects-section {
+  padding: 4px 4px 8px;
+}
+
+.projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.projects-empty {
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  margin: 1px 4px;
+}
+
+.project-row.active {
+  background: var(--bg-3);
+}
+
+.project-row:hover .project-actions {
+  opacity: 1;
+}
+
+.project-row.editing {
+  padding: 4px 6px;
+}
+
+.project-row.editing input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.project-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.project-main:hover {
+  background: var(--bg-3);
+}
+
+.project-name {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-meta {
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-branch {
+  margin-left: 4px;
+  color: var(--accent);
+}
+
+.project-actions {
+  display: flex;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 120ms;
+  margin-right: 4px;
+}
+
+.icon-button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-3);
+  border-color: var(--border);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.resize-x {
+  width: 4px;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background 120ms;
+}
+
+.resize-x:hover,
+.resize-x[data-separator][data-active] {
+  background: var(--accent);
+}
+
+.resize-y {
+  height: 4px;
+  background: var(--border);
+  cursor: row-resize;
+  transition: background 120ms;
+}
+
+.resize-y:hover,
+.resize-y[data-separator][data-active] {
+  background: var(--accent);
 }
 
 .file-tree {
@@ -482,24 +639,26 @@ button.primary:hover:not(:disabled) {
 
 .editor-pane {
   min-width: 0;
-  border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .editor-empty {
   padding: 20px;
   color: var(--fg-dim);
-}
-
-.right-pane {
-  display: grid;
-  grid-template-rows: 1fr 180px;
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
 }
 
 .preview-pane {
   display: grid;
-  grid-template-rows: 28px 1fr;
+  grid-template-rows: 32px 1fr;
   min-height: 0;
+  height: 100%;
   background: #fff;
 }
 
@@ -508,8 +667,8 @@ button.primary:hover:not(:disabled) {
   color: var(--fg-dim);
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  gap: 16px;
+  padding: 0 8px;
+  gap: 8px;
   font-size: 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -547,7 +706,7 @@ button.primary:hover:not(:disabled) {
   font-size: 12px;
   padding: 8px;
   overflow: auto;
-  border-top: 1px solid var(--border);
+  height: 100%;
 }
 
 .log {

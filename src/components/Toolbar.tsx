@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { GhUser } from '../lib/github';
 import GitHubPanel from './GitHubPanel';
 import EnvPanel from './EnvPanel';
@@ -19,6 +19,7 @@ export interface ToolbarProps {
   envContent: string;
   exampleEnv: string | null;
   onSaveEnv: (content: string, restart: boolean) => void;
+  defaultNetlifySiteId: string;
 }
 
 export default function Toolbar({
@@ -37,6 +38,7 @@ export default function Toolbar({
   envContent,
   exampleEnv,
   onSaveEnv,
+  defaultNetlifySiteId,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -44,9 +46,11 @@ export default function Toolbar({
   const [netlifyToken, setNetlifyToken] = useState(
     () => localStorage.getItem('netlify_token') ?? '',
   );
-  const [siteId, setSiteId] = useState(
-    () => localStorage.getItem('netlify_site_id') ?? '',
-  );
+  const [siteId, setSiteId] = useState(defaultNetlifySiteId);
+
+  useEffect(() => {
+    setSiteId(defaultNetlifySiteId);
+  }, [defaultNetlifySiteId]);
 
   const connected = !!(token && user);
 

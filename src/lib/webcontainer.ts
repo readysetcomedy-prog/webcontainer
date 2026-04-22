@@ -1,6 +1,7 @@
 import { WebContainer } from '@webcontainer/api';
 import type { FileSystemTree } from '@webcontainer/api';
 import type { FileEntry } from '../types';
+import { isBinaryPath } from './github';
 
 let bootPromise: Promise<WebContainer> | null = null;
 
@@ -43,8 +44,14 @@ export async function readAllFiles(
     if (entry.isDirectory()) {
       await readAllFiles(container, full, acc, skip);
     } else {
-      const content = await container.fs.readFile(full, 'utf-8');
-      acc.push({ path: full.replace(/^\//, ''), content });
+      const rel = full.replace(/^\//, '');
+      if (isBinaryPath(rel)) {
+        const bytes = await container.fs.readFile(full);
+        acc.push({ path: rel, content: bytes });
+      } else {
+        const content = await container.fs.readFile(full, 'utf-8');
+        acc.push({ path: rel, content });
+      }
     }
   }
   return acc;

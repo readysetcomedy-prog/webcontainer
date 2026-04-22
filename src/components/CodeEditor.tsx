@@ -23,15 +23,25 @@ export default function CodeEditor({
   path,
   value,
   onChange,
+  binary,
 }: {
   path: string | null;
   value: string;
   onChange: (value: string) => void;
+  binary?: boolean;
 }) {
   if (!path) {
     return (
       <div className="editor-empty">
         Select a file from the tree to start editing.
+      </div>
+    );
+  }
+  if (binary) {
+    return (
+      <div className="editor-empty">
+        <div><b>{path}</b></div>
+        <div>Binary file — preview/edit not supported in the editor.</div>
       </div>
     );
   }

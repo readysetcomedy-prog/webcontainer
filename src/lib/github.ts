@@ -163,11 +163,29 @@ export async function listBranches(
 }
 
 function decodeBase64ToUtf8(b64: string): string {
+  return new TextDecoder('utf-8').decode(base64ToBytes(b64));
+}
+
+function base64ToBytes(b64: string): Uint8Array {
   const clean = b64.replace(/\s/g, '');
   const bin = atob(clean);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder('utf-8').decode(bytes);
+  return bytes;
+}
+
+const BINARY_EXTS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'avif', 'tif', 'tiff',
+  'mp3', 'mp4', 'wav', 'ogg', 'webm', 'mov', 'avi', 'm4a',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'pdf', 'zip', 'gz', 'tgz', 'tar', 'rar', '7z',
+  'psd', 'ai', 'sketch',
+  'wasm', 'bin', 'dmg', 'exe',
+]);
+
+export function isBinaryPath(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  return BINARY_EXTS.has(ext);
 }
 
 export async function fetchRepoFiles(
@@ -200,16 +218,18 @@ export async function fetchRepoFiles(
     while (index < blobs.length) {
       const i = index++;
       const entry = blobs[i];
-      let content: string;
+      const binary = isBinaryPath(entry.path);
+      let content: string | Uint8Array;
       if (token) {
         const blob = await ghJson<{ content: string; encoding: string }>(
           `https://api.github.com/repos/${owner}/${repo}/git/blobs/${entry.sha}`,
           token,
         );
-        content =
-          blob.encoding === 'base64'
-            ? decodeBase64ToUtf8(blob.content)
-            : blob.content;
+        if (blob.encoding === 'base64') {
+          content = binary ? base64ToBytes(blob.content) : decodeBase64ToUtf8(blob.content);
+        } else {
+          content = blob.content;
+        }
       } else {
         const raw = await fetch(
           `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${entry.path}`,
@@ -217,7 +237,7 @@ export async function fetchRepoFiles(
         if (!raw.ok) {
           throw new Error(`Failed to fetch ${entry.path}: ${raw.status}`);
         }
-        content = await raw.text();
+        content = binary ? new Uint8Array(await raw.arrayBuffer()) : await raw.text();
       }
       files.push({ path: entry.path, content });
       done++;

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WebContainer, WebContainerProcess } from '@webcontainer/api';
+import { Group, Panel, Separator } from 'react-resizable-panels';
 import Toolbar from './components/Toolbar';
 import FileTree from './components/FileTree';
 import CodeEditor from './components/CodeEditor';
 import Preview from './components/Preview';
 import Terminal from './components/Terminal';
+import ProjectsSection from './components/ProjectsSection';
 import type { FileEntry, LogLine } from './types';
 import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
 import type { GhUser } from './lib/github';
@@ -17,6 +19,18 @@ import {
 } from './lib/github';
 import { deployToNetlify } from './lib/netlify';
 import { STARTER_FILES } from './lib/starter';
+import type { Project } from './lib/projects';
+import {
+  getActiveProjectId,
+  loadProjects,
+  newProjectId,
+  removeProject,
+  setActiveProjectId,
+  upsertProject,
+} from './lib/projects';
+
+const textOf = (c: string | Uint8Array): string =>
+  typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
 
 export default function App() {
   const [files, setFiles] = useState<FileEntry[]>(STARTER_FILES);
@@ -29,20 +43,44 @@ export default function App() {
   const [ghToken, setGhToken] = useState<string>(() => getStoredToken());
   const [ghUser, setGhUser] = useState<GhUser | null>(null);
   const [currentRepoKey, setCurrentRepoKey] = useState<string | null>(null);
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [exampleEnv, setExampleEnv] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>(() => loadProjects());
+  const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
+    () => getActiveProjectId(),
+  );
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
 
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
+
   const envKey = (repoKey: string) => `env:${repoKey}`;
-  const getStoredEnv = useCallback((repoKey: string | null): string => {
-    if (!repoKey) return '';
-    return localStorage.getItem(envKey(repoKey)) ?? '';
-  }, []);
-  const setStoredEnv = useCallback((repoKey: string, content: string) => {
-    if (content) localStorage.setItem(envKey(repoKey), content);
-    else localStorage.removeItem(envKey(repoKey));
-  }, []);
+  const getStoredEnv = useCallback(
+    (repoKey: string | null): string => {
+      if (activeProject) return activeProject.envContent;
+      if (!repoKey) return '';
+      return localStorage.getItem(envKey(repoKey)) ?? '';
+    },
+    [activeProject],
+  );
+  const setStoredEnv = useCallback(
+    (repoKey: string, content: string) => {
+      if (activeProject) {
+        const updated: Project = {
+          ...activeProject,
+          envContent: content,
+          updatedAt: Date.now(),
+        };
+        setProjects(upsertProject(updated));
+      } else if (content) {
+        localStorage.setItem(envKey(repoKey), content);
+      } else {
+        localStorage.removeItem(envKey(repoKey));
+      }
+    },
+    [activeProject],
+  );
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
     setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
@@ -156,7 +194,7 @@ export default function App() {
       }
       let scripts: Record<string, string> = {};
       try {
-        scripts = JSON.parse(pkg.content).scripts ?? {};
+        scripts = JSON.parse(textOf(pkg.content)).scripts ?? {};
       } catch {
         log('Could not parse package.json.', 'err');
       }
@@ -206,7 +244,7 @@ export default function App() {
   }, []);
 
   const pullRef = useCallback(
-    async (ref: { owner: string; repo: string; ref?: string }) => {
+    async (ref: { owner: string; repo: string; ref?: string }, envOverride?: string) => {
       const c = containerRef.current;
       if (!c) return;
       try {
@@ -229,20 +267,24 @@ export default function App() {
 
         const repoKey = `${ref.owner}/${ref.repo}`;
         setCurrentRepoKey(repoKey);
+        setCurrentBranch(ref.ref ?? null);
         const example = fetched.find((f) =>
           /^\.env\.(example|template|sample)$/i.test(f.path),
         );
-        setExampleEnv(example?.content ?? null);
-        const savedEnv = getStoredEnv(repoKey);
-        if (savedEnv) {
-          await c.fs.writeFile('/.env.local', savedEnv);
+        setExampleEnv(example ? textOf(example.content) : null);
+
+        const envToUse =
+          envOverride ??
+          (activeProject ? activeProject.envContent : localStorage.getItem(envKey(repoKey)) ?? '');
+        if (envToUse) {
+          await c.fs.writeFile('/.env.local', envToUse);
           log(
-            `Wrote saved .env.local (${savedEnv.split('\n').filter(Boolean).length} values).`,
+            `Wrote .env.local (${envToUse.split('\n').filter(Boolean).length} values).`,
             'info',
           );
         } else if (example) {
           log(
-            `This repo has ${example.path}. Click the Env button in the toolbar to set values before running.`,
+            `This repo has ${example.path}. Click "Env vars" to set values before running.`,
             'info',
           );
         }
@@ -255,13 +297,15 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [ghToken, getStoredEnv, log, runDev, stopDev],
+    [activeProject, ghToken, log, runDev, stopDev],
   );
 
   const openUrl = useCallback(
     async (repoInput: string) => {
       try {
         const ref = parseRepoInput(repoInput);
+        setActiveProjectId(null);
+        setActiveProjectIdState(null);
         await pullRef(ref);
       } catch (e) {
         log(`Pull failed: ${(e as Error).message}`, 'err');
@@ -273,9 +317,63 @@ export default function App() {
 
   const selectBranch = useCallback(
     (owner: string, repo: string, branch: string) => {
+      setActiveProjectId(null);
+      setActiveProjectIdState(null);
       pullRef({ owner, repo, ref: branch });
     },
     [pullRef],
+  );
+
+  const openProject = useCallback(
+    (p: Project) => {
+      setActiveProjectId(p.id);
+      setActiveProjectIdState(p.id);
+      pullRef({ owner: p.owner, repo: p.repo, ref: p.branch }, p.envContent);
+    },
+    [pullRef],
+  );
+
+  const saveCurrentProject = useCallback(
+    (name: string) => {
+      if (!currentRepoKey || !currentBranch) return;
+      const [owner, repo] = currentRepoKey.split('/');
+      const envContent = activeProject
+        ? activeProject.envContent
+        : localStorage.getItem(envKey(currentRepoKey)) ?? '';
+      const project: Project = {
+        id: activeProject?.id ?? newProjectId(),
+        name,
+        owner,
+        repo,
+        branch: currentBranch,
+        envContent,
+        netlifySiteId: activeProject?.netlifySiteId,
+        updatedAt: Date.now(),
+      };
+      setProjects(upsertProject(project));
+      setActiveProjectId(project.id);
+      setActiveProjectIdState(project.id);
+      log(`Saved project "${name}".`, 'info');
+    },
+    [activeProject, currentBranch, currentRepoKey, log],
+  );
+
+  const renameProject = useCallback((id: string, name: string) => {
+    const all = loadProjects();
+    const p = all.find((x) => x.id === id);
+    if (!p) return;
+    setProjects(upsertProject({ ...p, name, updatedAt: Date.now() }));
+  }, []);
+
+  const deleteProject = useCallback(
+    (id: string) => {
+      const next = removeProject(id);
+      setProjects(next);
+      if (activeProjectId === id) {
+        setActiveProjectIdState(null);
+      }
+    },
+    [activeProjectId],
   );
 
   const saveEnv = useCallback(
@@ -299,10 +397,12 @@ export default function App() {
   );
 
   const activeFile = files.find((f) => f.path === activePath) ?? null;
+  const activeFileIsBinary =
+    !!activeFile && typeof activeFile.content !== 'string';
 
   const updateActiveFile = useCallback(
     (value: string) => {
-      if (!activeFile) return;
+      if (!activeFile || typeof activeFile.content !== 'string') return;
       setFiles((prev) =>
         prev.map((f) => (f.path === activeFile.path ? { ...f, content: value } : f)),
       );
@@ -326,7 +426,7 @@ export default function App() {
         let deployFiles: FileEntry[] = files;
         if (pkgFile) {
           try {
-            const pkg = JSON.parse(pkgFile.content);
+            const pkg = JSON.parse(textOf(pkgFile.content));
             if (pkg.scripts?.build) {
               log('$ npm run build', 'info');
               const build = await c.spawn('npm', ['run', 'build']);
@@ -356,14 +456,27 @@ export default function App() {
         const result = await deployToNetlify(token, deployFiles, siteId || undefined);
         log(`Deployed: ${result.ssl_url ?? result.url}`, 'info');
         setStatus(`deployed: ${result.ssl_url ?? result.url}`);
+        if (activeProject && result.site_id) {
+          setProjects(
+            upsertProject({
+              ...activeProject,
+              netlifySiteId: result.site_id,
+              updatedAt: Date.now(),
+            }),
+          );
+          log(`Saved site_id to project "${activeProject.name}".`, 'info');
+        }
         window.open(result.ssl_url ?? result.url, '_blank');
       } catch (e) {
         log(`Deploy failed: ${(e as Error).message}`, 'err');
         setStatus('deploy failed');
       }
     },
-    [files, log, pipeProcess],
+    [activeProject, files, log, pipeProcess],
   );
+
+  const netlifySiteIdForToolbar =
+    activeProject?.netlifySiteId ?? localStorage.getItem('netlify_site_id') ?? '';
 
   return (
     <div className="app">
@@ -383,23 +496,50 @@ export default function App() {
         envContent={getStoredEnv(currentRepoKey)}
         exampleEnv={exampleEnv}
         onSaveEnv={saveEnv}
+        defaultNetlifySiteId={netlifySiteIdForToolbar}
       />
-      <div className="main">
-        <aside className="sidebar">
-          <FileTree files={files} activePath={activePath} onSelect={setActivePath} />
-        </aside>
-        <section className="editor-pane">
-          <CodeEditor
-            path={activeFile?.path ?? null}
-            value={activeFile?.content ?? ''}
-            onChange={updateActiveFile}
+      <Group orientation="horizontal" className="main">
+        <Panel defaultSize={18} minSize={10} className="sidebar">
+          <ProjectsSection
+            projects={projects}
+            activeId={activeProjectId}
+            canSave={!!currentRepoKey && !!currentBranch}
+            currentRepoKey={currentRepoKey}
+            currentBranch={currentBranch}
+            onOpen={openProject}
+            onSaveCurrent={saveCurrentProject}
+            onRename={renameProject}
+            onDelete={deleteProject}
           />
-        </section>
-        <section className="right-pane">
+          <div className="sidebar-divider">Files</div>
+          <FileTree files={files} activePath={activePath} onSelect={setActivePath} />
+        </Panel>
+        <Separator className="resize-x" />
+        <Panel defaultSize={42} minSize={20}>
+          <Group orientation="vertical">
+            <Panel defaultSize={70} minSize={20} className="editor-pane">
+              <CodeEditor
+                path={activeFile?.path ?? null}
+                value={
+                  activeFile && typeof activeFile.content === 'string'
+                    ? activeFile.content
+                    : ''
+                }
+                onChange={updateActiveFile}
+                binary={activeFileIsBinary}
+              />
+            </Panel>
+            <Separator className="resize-y" />
+            <Panel defaultSize={30} minSize={10}>
+              <Terminal logs={logs} />
+            </Panel>
+          </Group>
+        </Panel>
+        <Separator className="resize-x" />
+        <Panel defaultSize={40} minSize={20}>
           <Preview url={previewUrl} status={status} />
-          <Terminal logs={logs} />
-        </section>
-      </div>
+        </Panel>
+      </Group>
     </div>
   );
 }
