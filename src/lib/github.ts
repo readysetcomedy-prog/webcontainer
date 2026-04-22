@@ -7,18 +7,37 @@ export interface RepoRef {
 }
 
 export function parseRepoInput(input: string): RepoRef {
-  const trimmed = input.trim();
-  const urlMatch = trimmed.match(
-    /github\.com[\/:]([^\/]+)\/([^\/#?]+?)(?:\.git)?(?:\/tree\/([^\/?#]+))?\/?$/i,
+  let s = input.trim();
+  if (!s) throw new Error('Enter a GitHub URL.');
+
+  s = s.replace(/^https?:\/\//i, '');
+  s = s.replace(/^git@github\.com:/i, '');
+  s = s.replace(/^github\.com\//i, '');
+  s = s.replace(/[?#].*$/, '');
+  s = s.replace(/\/$/, '');
+  s = s.replace(/\.git$/i, '');
+
+  let ref: string | undefined;
+  const atIdx = s.indexOf('@');
+  const firstSlash = s.indexOf('/');
+  if (atIdx >= 0 && firstSlash >= 0 && atIdx > firstSlash) {
+    ref = s.slice(atIdx + 1);
+    s = s.slice(0, atIdx);
+  }
+
+  const treeMatch = s.match(/^([^\/]+)\/([^\/]+)\/tree\/(.+)$/);
+  if (treeMatch) {
+    return { owner: treeMatch[1], repo: treeMatch[2], ref: ref ?? treeMatch[3] };
+  }
+
+  const simpleMatch = s.match(/^([^\/\s]+)\/([^\/\s]+)$/);
+  if (simpleMatch) {
+    return { owner: simpleMatch[1], repo: simpleMatch[2], ref };
+  }
+
+  throw new Error(
+    `That doesn't look like a GitHub URL. Try something like https://github.com/owner/repo`,
   );
-  if (urlMatch) {
-    return { owner: urlMatch[1], repo: urlMatch[2], ref: urlMatch[3] };
-  }
-  const shortMatch = trimmed.match(/^([^\/\s]+)\/([^\/\s#@]+?)(?:@([^\s]+))?$/);
-  if (shortMatch) {
-    return { owner: shortMatch[1], repo: shortMatch[2], ref: shortMatch[3] };
-  }
-  throw new Error(`Cannot parse GitHub reference: ${input}`);
 }
 
 interface TreeEntry {
