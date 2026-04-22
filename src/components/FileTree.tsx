@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { FileEntry } from '../types';
 
 interface Node {
@@ -45,31 +45,43 @@ function TreeNode({
   node,
   depth,
   activePath,
+  expanded,
+  onToggle,
   onSelect,
 }: {
   node: Node;
   depth: number;
   activePath: string | null;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
   onSelect: (path: string) => void;
 }) {
   if (node.children) {
+    const isOpen = depth === 0 || expanded.has(node.path);
     return (
       <div>
         {depth > 0 && (
-          <div className="tree-row tree-dir" style={{ paddingLeft: depth * 12 }}>
-            <span className="tree-icon">▾</span>
+          <div
+            className="tree-row tree-dir"
+            style={{ paddingLeft: depth * 12 }}
+            onClick={() => onToggle(node.path)}
+          >
+            <span className="tree-icon">{isOpen ? '▾' : '▸'}</span>
             {node.name}
           </div>
         )}
-        {node.children.map((c) => (
-          <TreeNode
-            key={c.path}
-            node={c}
-            depth={depth + 1}
-            activePath={activePath}
-            onSelect={onSelect}
-          />
-        ))}
+        {isOpen &&
+          node.children.map((c) => (
+            <TreeNode
+              key={c.path}
+              node={c}
+              depth={depth + 1}
+              activePath={activePath}
+              expanded={expanded}
+              onToggle={onToggle}
+              onSelect={onSelect}
+            />
+          ))}
       </div>
     );
   }
@@ -96,9 +108,25 @@ export default function FileTree({
   onSelect: (path: string) => void;
 }) {
   const tree = useMemo(() => buildTree(files), [files]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggle = (path: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
   return (
     <div className="file-tree">
-      <TreeNode node={tree} depth={0} activePath={activePath} onSelect={onSelect} />
+      <TreeNode
+        node={tree}
+        depth={0}
+        activePath={activePath}
+        expanded={expanded}
+        onToggle={toggle}
+        onSelect={onSelect}
+      />
     </div>
   );
 }
