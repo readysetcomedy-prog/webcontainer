@@ -54,6 +54,27 @@ async function ghJson<T>(url: string, token?: string): Promise<T> {
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(url, { headers });
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        token
+          ? `GitHub returned 404. The repo or branch does not exist, or your token does not have access to it.`
+          : `GitHub returned 404. If this is a private repo, click "Show advanced options" and paste a GitHub personal access token. Otherwise check the owner, repo name, and branch.`,
+      );
+    }
+    if (res.status === 401) {
+      throw new Error(
+        `GitHub rejected the token (401). Generate a new one at https://github.com/settings/tokens with access to this repo.`,
+      );
+    }
+    if (res.status === 403) {
+      const body = await res.text();
+      if (body.includes('rate limit')) {
+        throw new Error(
+          `GitHub rate limit hit. Add a personal access token under "Show advanced options" to raise your limit.`,
+        );
+      }
+      throw new Error(`GitHub 403: ${body}`);
+    }
     throw new Error(`GitHub ${res.status}: ${await res.text()}`);
   }
   return res.json() as Promise<T>;
