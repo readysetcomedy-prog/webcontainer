@@ -1,9 +1,16 @@
 import { useState } from 'react';
+import type { GhUser } from '../lib/github';
+import GitHubPanel from './GitHubPanel';
 
 export interface ToolbarProps {
   booting: boolean;
   running: boolean;
-  onLoadRepo: (repo: string, token: string) => void;
+  token: string;
+  user: GhUser | null;
+  onConnect: (token: string, user: GhUser) => void;
+  onDisconnect: () => void;
+  onSelectBranch: (owner: string, repo: string, branch: string) => void;
+  onOpenUrl: (url: string) => void;
   onRun: () => void;
   onStop: () => void;
   onDeploy: (token: string, siteId: string) => void;
@@ -12,18 +19,18 @@ export interface ToolbarProps {
 export default function Toolbar({
   booting,
   running,
-  onLoadRepo,
+  token,
+  user,
+  onConnect,
+  onDisconnect,
+  onSelectBranch,
+  onOpenUrl,
   onRun,
   onStop,
   onDeploy,
 }: ToolbarProps) {
-  const [repoOpen, setRepoOpen] = useState(false);
+  const [ghOpen, setGhOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [repo, setRepo] = useState('https://github.com/vitejs/vite');
-  const [ghToken, setGhToken] = useState(
-    () => localStorage.getItem('github_token') ?? '',
-  );
   const [netlifyToken, setNetlifyToken] = useState(
     () => localStorage.getItem('netlify_token') ?? '',
   );
@@ -31,19 +38,28 @@ export default function Toolbar({
     () => localStorage.getItem('netlify_site_id') ?? '',
   );
 
-  const submitRepo = () => {
-    if (!repo.trim()) return;
-    onLoadRepo(repo, ghToken);
-    setRepoOpen(false);
-  };
+  const connected = !!(token && user);
 
   return (
     <div className="toolbar">
       <div className="brand">WebContainer Studio</div>
       <div className="toolbar-actions">
-        <button onClick={() => setRepoOpen((v) => !v)} disabled={booting}>
-          Open from GitHub
-        </button>
+        {connected ? (
+          <button
+            className="user-chip"
+            onClick={() => setGhOpen((v) => !v)}
+            disabled={booting}
+            title="Browse repos and branches"
+          >
+            <img src={user!.avatar_url} alt="" className="user-chip-avatar" />
+            <span>{user!.login}</span>
+            <span className="chevron">▾</span>
+          </button>
+        ) : (
+          <button onClick={() => setGhOpen((v) => !v)} disabled={booting}>
+            Connect GitHub
+          </button>
+        )}
         {running ? (
           <button onClick={onStop}>Stop</button>
         ) : (
@@ -55,65 +71,33 @@ export default function Toolbar({
           Deploy to Netlify
         </button>
       </div>
-      {repoOpen && (
-        <div className="popover">
-          <div className="popover-title">Open a GitHub repo</div>
-          <div className="popover-hint">
-            Paste the GitHub URL of the project you want to open. We'll download
-            it, install the dependencies, and start it up automatically.
-          </div>
-          <label>
-            GitHub URL
-            <input
-              autoFocus
-              value={repo}
-              onChange={(e) => setRepo(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submitRepo();
-              }}
-              placeholder="https://github.com/vitejs/vite"
-            />
-          </label>
-          <button
-            className="link-button"
-            type="button"
-            onClick={() => setAdvancedOpen((v) => !v)}
-          >
-            {advancedOpen ? 'Hide' : 'Show'} advanced options
-          </button>
-          {advancedOpen && (
-            <label>
-              GitHub personal access token
-              <span className="hint-text">
-                Only needed for private repos or to avoid GitHub rate limits.
-                Stored locally in your browser.
-              </span>
-              <input
-                type="password"
-                value={ghToken}
-                onChange={(e) => {
-                  setGhToken(e.target.value);
-                  localStorage.setItem('github_token', e.target.value);
-                }}
-                placeholder="ghp_..."
-              />
-            </label>
-          )}
-          <div className="popover-actions">
-            <button onClick={() => setRepoOpen(false)}>Cancel</button>
-            <button className="primary" onClick={submitRepo}>
-              Open &amp; Run
-            </button>
-          </div>
-        </div>
+      {ghOpen && (
+        <GitHubPanel
+          token={token}
+          user={user}
+          onConnect={(t, u) => {
+            onConnect(t, u);
+          }}
+          onDisconnect={() => {
+            onDisconnect();
+          }}
+          onSelect={(owner, repo, branch) => {
+            setGhOpen(false);
+            onSelectBranch(owner, repo, branch);
+          }}
+          onOpenUrl={(url) => {
+            setGhOpen(false);
+            onOpenUrl(url);
+          }}
+        />
       )}
       {deployOpen && (
         <div className="popover">
           <div className="popover-title">Deploy to Netlify</div>
           <div className="popover-hint">
-            Builds the project and uploads the result to Netlify. Paste a Netlify
-            personal access token below. Leave the site id blank to create a new
-            site.
+            Builds the project and uploads the result to Netlify. Paste a
+            Netlify personal access token below. Leave the site id blank to
+            create a new site.
           </div>
           <label>
             Netlify personal access token

@@ -7,7 +7,14 @@ import Preview from './components/Preview';
 import Terminal from './components/Terminal';
 import type { FileEntry, LogLine } from './types';
 import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
-import { fetchRepoFiles, parseRepoInput } from './lib/github';
+import type { GhUser } from './lib/github';
+import {
+  fetchRepoFiles,
+  getStoredToken,
+  getUser,
+  parseRepoInput,
+  setStoredToken,
+} from './lib/github';
 import { deployToNetlify } from './lib/netlify';
 import { STARTER_FILES } from './lib/starter';
 
@@ -19,12 +26,44 @@ export default function App() {
   const [booting, setBooting] = useState(false);
   const [running, setRunning] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [ghToken, setGhToken] = useState<string>(() => getStoredToken());
+  const [ghUser, setGhUser] = useState<GhUser | null>(null);
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
     setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
+  }, []);
+
+  useEffect(() => {
+    if (!ghToken || ghUser) return;
+    let cancelled = false;
+    getUser(ghToken)
+      .then((u) => {
+        if (!cancelled) setGhUser(u);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        log(`Stored GitHub token is no longer valid: ${(e as Error).message}`, 'err');
+        setStoredToken('');
+        setGhToken('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ghToken, ghUser, log]);
+
+  const connectGitHub = useCallback((token: string, user: GhUser) => {
+    setStoredToken(token);
+    setGhToken(token);
+    setGhUser(user);
+  }, []);
+
+  const disconnectGitHub = useCallback(() => {
+    setStoredToken('');
+    setGhToken('');
+    setGhUser(null);
   }, []);
 
   useEffect(() => {
@@ -154,18 +193,18 @@ export default function App() {
     devProcRef.current?.kill();
   }, []);
 
-  const loadRepo = useCallback(
-    async (repoInput: string, token: string) => {
+  const pullRef = useCallback(
+    async (ref: { owner: string; repo: string; ref?: string }) => {
       const c = containerRef.current;
       if (!c) return;
       try {
-        if (token) localStorage.setItem('github_token', token);
         stopDev();
-        setStatus('parsing repo…');
-        const ref = parseRepoInput(repoInput);
         setStatus(`fetching ${ref.owner}/${ref.repo}…`);
-        log(`Pulling ${ref.owner}/${ref.repo}${ref.ref ? `@${ref.ref}` : ''}`, 'info');
-        const fetched = await fetchRepoFiles(ref, token || undefined, (d, t) => {
+        log(
+          `Pulling ${ref.owner}/${ref.repo}${ref.ref ? `@${ref.ref}` : ''}`,
+          'info',
+        );
+        const fetched = await fetchRepoFiles(ref, ghToken || undefined, (d, t) => {
           setStatus(`fetching ${d}/${t} files…`);
         });
         setStatus(`mounting ${fetched.length} files…`);
@@ -183,7 +222,27 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [log, runDev, stopDev],
+    [ghToken, log, runDev, stopDev],
+  );
+
+  const openUrl = useCallback(
+    async (repoInput: string) => {
+      try {
+        const ref = parseRepoInput(repoInput);
+        await pullRef(ref);
+      } catch (e) {
+        log(`Pull failed: ${(e as Error).message}`, 'err');
+        setStatus('pull failed');
+      }
+    },
+    [log, pullRef],
+  );
+
+  const selectBranch = useCallback(
+    (owner: string, repo: string, branch: string) => {
+      pullRef({ owner, repo, ref: branch });
+    },
+    [pullRef],
   );
 
   const activeFile = files.find((f) => f.path === activePath) ?? null;
@@ -258,7 +317,12 @@ export default function App() {
       <Toolbar
         booting={booting}
         running={running}
-        onLoadRepo={loadRepo}
+        token={ghToken}
+        user={ghUser}
+        onConnect={connectGitHub}
+        onDisconnect={disconnectGitHub}
+        onSelectBranch={selectBranch}
+        onOpenUrl={openUrl}
         onRun={() => runDev()}
         onStop={stopDev}
         onDeploy={deploy}
