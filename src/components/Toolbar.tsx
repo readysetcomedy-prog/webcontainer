@@ -20,6 +20,9 @@ export interface ToolbarProps {
   exampleEnv: string | null;
   onSaveEnv: (content: string, restart: boolean) => void;
   defaultNetlifySiteId: string;
+  dirtyCount: number;
+  onPushToGitHub: () => void;
+  onPullFromGitHub: () => void;
 }
 
 export default function Toolbar({
@@ -39,6 +42,9 @@ export default function Toolbar({
   exampleEnv,
   onSaveEnv,
   defaultNetlifySiteId,
+  dirtyCount,
+  onPushToGitHub,
+  onPullFromGitHub,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -83,6 +89,33 @@ export default function Toolbar({
         >
           Env vars
           {envContent && <span className="dot" />}
+        </button>
+        <button
+          onClick={onPullFromGitHub}
+          disabled={booting || !repoKey}
+          title={
+            repoKey
+              ? `Pull latest from ${repoKey}`
+              : 'Open a repo first to pull from GitHub'
+          }
+        >
+          Pull
+        </button>
+        <button
+          onClick={onPushToGitHub}
+          disabled={booting || !repoKey || !token || dirtyCount === 0}
+          title={
+            !token
+              ? 'Connect GitHub to push'
+              : !repoKey
+              ? 'Open a repo first to push'
+              : dirtyCount === 0
+              ? 'No local edits to push'
+              : `Push ${dirtyCount} file${dirtyCount === 1 ? '' : 's'} to GitHub`
+          }
+        >
+          Push
+          {dirtyCount > 0 && <span className="count-badge">{dirtyCount}</span>}
         </button>
         {running ? (
           <button onClick={onStop}>Stop</button>

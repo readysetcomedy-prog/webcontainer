@@ -15,6 +15,7 @@ import {
   getStoredToken,
   getUser,
   parseRepoInput,
+  pushCommit,
   setStoredToken,
 } from './lib/github';
 import { deployToNetlify } from './lib/netlify';
@@ -45,6 +46,7 @@ export default function App() {
   const [currentRepoKey, setCurrentRepoKey] = useState<string | null>(null);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [exampleEnv, setExampleEnv] = useState<string | null>(null);
+  const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(() => new Set());
   const [projects, setProjects] = useState<Project[]>(() => loadProjects());
   const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
     () => getActiveProjectId(),
@@ -260,6 +262,7 @@ export default function App() {
         setStatus(`mounting ${fetched.length} files…`);
         await c.mount(filesToTree(fetched));
         setFiles(fetched);
+        setDirtyPaths(new Set());
         const firstCodeFile = fetched.find((f) =>
           /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
         );
@@ -406,6 +409,12 @@ export default function App() {
       setFiles((prev) =>
         prev.map((f) => (f.path === activeFile.path ? { ...f, content: value } : f)),
       );
+      setDirtyPaths((prev) => {
+        if (prev.has(activeFile.path)) return prev;
+        const next = new Set(prev);
+        next.add(activeFile.path);
+        return next;
+      });
       const c = containerRef.current;
       if (c) {
         c.fs.writeFile(`/${activeFile.path}`, value).catch((err) => {
@@ -415,6 +424,63 @@ export default function App() {
     },
     [activeFile, log],
   );
+
+  const pushToGitHub = useCallback(async () => {
+    if (!ghToken) {
+      log('Connect GitHub first to push.', 'err');
+      return;
+    }
+    if (!currentRepoKey || !currentBranch) {
+      log('No repo loaded.', 'err');
+      return;
+    }
+    if (dirtyPaths.size === 0) {
+      log('Nothing to push — no files edited since last sync.', 'info');
+      return;
+    }
+    const [owner, repo] = currentRepoKey.split('/');
+    const dirty = files.filter((f) => dirtyPaths.has(f.path));
+    const message =
+      dirty.length <= 3
+        ? `studio: ${dirty.map((f) => f.path).join(', ')}`
+        : `studio: update ${dirty.length} files`;
+    setStatus(`pushing ${dirty.length} file${dirty.length === 1 ? '' : 's'}…`);
+    try {
+      const { commitSha } = await pushCommit(
+        ghToken,
+        owner,
+        repo,
+        currentBranch,
+        dirty,
+        message,
+      );
+      setDirtyPaths(new Set());
+      log(
+        `Pushed ${dirty.length} file${dirty.length === 1 ? '' : 's'} to ${owner}/${repo}@${currentBranch} (${commitSha.slice(0, 7)}).`,
+        'info',
+      );
+      setStatus(`pushed ${commitSha.slice(0, 7)}`);
+    } catch (e) {
+      log(`Push failed: ${(e as Error).message}`, 'err');
+      setStatus('push failed');
+    }
+  }, [currentBranch, currentRepoKey, dirtyPaths, files, ghToken, log]);
+
+  const pullFromGitHub = useCallback(async () => {
+    if (!currentRepoKey || !currentBranch) {
+      log('No repo loaded.', 'err');
+      return;
+    }
+    if (dirtyPaths.size > 0) {
+      const ok = window.confirm(
+        `You have ${dirtyPaths.size} unpushed change${dirtyPaths.size === 1 ? '' : 's'}. Pulling will overwrite ${dirtyPaths.size === 1 ? 'it' : 'them'}. Continue?`,
+      );
+      if (!ok) return;
+    }
+    const [owner, repo] = currentRepoKey.split('/');
+    await pullRef({ owner, repo, ref: currentBranch });
+    setDirtyPaths(new Set());
+  }, [currentBranch, currentRepoKey, dirtyPaths, log, pullRef]);
 
   const deploy = useCallback(
     async (token: string, siteId: string) => {
@@ -497,6 +563,9 @@ export default function App() {
         exampleEnv={exampleEnv}
         onSaveEnv={saveEnv}
         defaultNetlifySiteId={netlifySiteIdForToolbar}
+        dirtyCount={dirtyPaths.size}
+        onPushToGitHub={pushToGitHub}
+        onPullFromGitHub={pullFromGitHub}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">

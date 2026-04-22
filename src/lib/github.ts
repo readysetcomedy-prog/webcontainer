@@ -188,6 +188,109 @@ export function isBinaryPath(path: string): boolean {
   return BINARY_EXTS.has(ext);
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(
+      null,
+      bytes.subarray(i, i + CHUNK) as unknown as number[],
+    );
+  }
+  return btoa(bin);
+}
+
+async function ghPost<T>(url: string, token: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
+}
+
+async function ghPatch<T>(url: string, token: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
+}
+
+export async function pushCommit(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  files: FileEntry[],
+  message: string,
+): Promise<{ commitSha: string; branch: string }> {
+  if (files.length === 0) throw new Error('No files to commit');
+
+  const refInfo = await ghJson<{ object: { sha: string } }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+    token,
+  );
+  const parentSha = refInfo.object.sha;
+  const parentCommit = await ghJson<{ tree: { sha: string } }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/commits/${parentSha}`,
+    token,
+  );
+
+  const treeEntries = await Promise.all(
+    files.map(async (f) => {
+      const body =
+        typeof f.content === 'string'
+          ? { content: f.content, encoding: 'utf-8' as const }
+          : { content: bytesToBase64(f.content), encoding: 'base64' as const };
+      const blob = await ghPost<{ sha: string }>(
+        `https://api.github.com/repos/${owner}/${repo}/git/blobs`,
+        token,
+        body,
+      );
+      return {
+        path: f.path.replace(/^\//, ''),
+        mode: '100644' as const,
+        type: 'blob' as const,
+        sha: blob.sha,
+      };
+    }),
+  );
+
+  const newTree = await ghPost<{ sha: string }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/trees`,
+    token,
+    { base_tree: parentCommit.tree.sha, tree: treeEntries },
+  );
+
+  const newCommit = await ghPost<{ sha: string }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/commits`,
+    token,
+    { message, tree: newTree.sha, parents: [parentSha] },
+  );
+
+  await ghPatch<{ ref: string }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+    token,
+    { sha: newCommit.sha, force: false },
+  );
+
+  return { commitSha: newCommit.sha, branch };
+}
+
 export async function fetchRepoFiles(
   ref: RepoRef,
   token?: string,
