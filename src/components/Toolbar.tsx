@@ -19,7 +19,8 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [repoOpen, setRepoOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
-  const [repo, setRepo] = useState('vitejs/vite');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [repo, setRepo] = useState('https://github.com/vitejs/vite');
   const [ghToken, setGhToken] = useState(
     () => localStorage.getItem('github_token') ?? '',
   );
@@ -30,12 +31,18 @@ export default function Toolbar({
     () => localStorage.getItem('netlify_site_id') ?? '',
   );
 
+  const submitRepo = () => {
+    if (!repo.trim()) return;
+    onLoadRepo(repo, ghToken);
+    setRepoOpen(false);
+  };
+
   return (
     <div className="toolbar">
       <div className="brand">WebContainer Studio</div>
       <div className="toolbar-actions">
         <button onClick={() => setRepoOpen((v) => !v)} disabled={booting}>
-          Pull from GitHub
+          Open from GitHub
         </button>
         {running ? (
           <button onClick={onStop}>Stop</button>
@@ -50,44 +57,68 @@ export default function Toolbar({
       </div>
       {repoOpen && (
         <div className="popover">
+          <div className="popover-title">Open a GitHub repo</div>
+          <div className="popover-hint">
+            Paste the GitHub URL of the project you want to open. We'll download
+            it, install the dependencies, and start it up automatically.
+          </div>
           <label>
-            Repo (<code>owner/repo</code>, <code>owner/repo@branch</code>, or full URL)
+            GitHub URL
             <input
+              autoFocus
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
-              placeholder="vitejs/vite"
-            />
-          </label>
-          <label>
-            GitHub token <em>(optional, for private repos + rate limits)</em>
-            <input
-              type="password"
-              value={ghToken}
-              onChange={(e) => {
-                setGhToken(e.target.value);
-                localStorage.setItem('github_token', e.target.value);
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRepo();
               }}
-              placeholder="ghp_..."
+              placeholder="https://github.com/vitejs/vite"
             />
           </label>
+          <button
+            className="link-button"
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+          >
+            {advancedOpen ? 'Hide' : 'Show'} advanced options
+          </button>
+          {advancedOpen && (
+            <label>
+              GitHub personal access token
+              <span className="hint-text">
+                Only needed for private repos or to avoid GitHub rate limits.
+                Stored locally in your browser.
+              </span>
+              <input
+                type="password"
+                value={ghToken}
+                onChange={(e) => {
+                  setGhToken(e.target.value);
+                  localStorage.setItem('github_token', e.target.value);
+                }}
+                placeholder="ghp_..."
+              />
+            </label>
+          )}
           <div className="popover-actions">
-            <button
-              onClick={() => {
-                onLoadRepo(repo, ghToken);
-                setRepoOpen(false);
-              }}
-            >
-              Pull
-            </button>
             <button onClick={() => setRepoOpen(false)}>Cancel</button>
+            <button className="primary" onClick={submitRepo}>
+              Open &amp; Run
+            </button>
           </div>
         </div>
       )}
       {deployOpen && (
         <div className="popover">
+          <div className="popover-title">Deploy to Netlify</div>
+          <div className="popover-hint">
+            Builds the project and uploads the result to Netlify. Paste a Netlify
+            personal access token below. Leave the site id blank to create a new
+            site.
+          </div>
           <label>
             Netlify personal access token
             <input
+              autoFocus
               type="password"
               value={netlifyToken}
               onChange={(e) => {
@@ -98,7 +129,8 @@ export default function Toolbar({
             />
           </label>
           <label>
-            Netlify site id <em>(blank to create new site)</em>
+            Netlify site id
+            <span className="hint-text">Leave blank to create a new site.</span>
             <input
               value={siteId}
               onChange={(e) => {
@@ -109,7 +141,9 @@ export default function Toolbar({
             />
           </label>
           <div className="popover-actions">
+            <button onClick={() => setDeployOpen(false)}>Cancel</button>
             <button
+              className="primary"
               onClick={() => {
                 onDeploy(netlifyToken, siteId);
                 setDeployOpen(false);
@@ -117,7 +151,6 @@ export default function Toolbar({
             >
               Deploy
             </button>
-            <button onClick={() => setDeployOpen(false)}>Cancel</button>
           </div>
         </div>
       )}

@@ -77,34 +77,63 @@ export default function App() {
     [],
   );
 
-  const runDev = useCallback(async () => {
-    const c = containerRef.current;
-    if (!c) return;
-    setRunning(true);
-    setStatus('installing dependencies…');
-    log('$ npm install', 'info');
-    const install = await c.spawn('npm', ['install']);
-    pipeProcess(install);
-    const code = await install.exit;
-    if (code !== 0) {
-      log(`npm install exited with code ${code}`, 'err');
-      setStatus('install failed');
-      setRunning(false);
-      return;
-    }
-    setStatus('starting dev server…');
-    log('$ npm run dev', 'info');
-    const dev = await c.spawn('npm', ['run', 'dev']);
-    devProcRef.current = dev;
-    pipeProcess(dev);
-    dev.exit.then((exitCode) => {
-      log(`dev server exited (${exitCode})`, 'info');
-      devProcRef.current = null;
-      setRunning(false);
-      setPreviewUrl(null);
-      setStatus('stopped');
-    });
-  }, [log, pipeProcess]);
+  const runDev = useCallback(
+    async (filesOverride?: FileEntry[]) => {
+      const c = containerRef.current;
+      if (!c) return;
+      const projectFiles = filesOverride ?? files;
+      const pkg = projectFiles.find((f) => f.path === 'package.json');
+      if (!pkg) {
+        log('No package.json found — skipping install/run.', 'info');
+        setStatus('ready (no package.json)');
+        return;
+      }
+      let scripts: Record<string, string> = {};
+      try {
+        scripts = JSON.parse(pkg.content).scripts ?? {};
+      } catch {
+        log('Could not parse package.json.', 'err');
+      }
+      const startScript = scripts.dev
+        ? 'dev'
+        : scripts.start
+        ? 'start'
+        : scripts.serve
+        ? 'serve'
+        : null;
+      setRunning(true);
+      setStatus('installing dependencies…');
+      log('$ npm install', 'info');
+      const install = await c.spawn('npm', ['install']);
+      pipeProcess(install);
+      const code = await install.exit;
+      if (code !== 0) {
+        log(`npm install exited with code ${code}`, 'err');
+        setStatus('install failed');
+        setRunning(false);
+        return;
+      }
+      if (!startScript) {
+        log('No dev/start/serve script found in package.json.', 'info');
+        setStatus('installed (no start script)');
+        setRunning(false);
+        return;
+      }
+      setStatus(`starting (npm run ${startScript})…`);
+      log(`$ npm run ${startScript}`, 'info');
+      const dev = await c.spawn('npm', ['run', startScript]);
+      devProcRef.current = dev;
+      pipeProcess(dev);
+      dev.exit.then((exitCode) => {
+        log(`dev server exited (${exitCode})`, 'info');
+        devProcRef.current = null;
+        setRunning(false);
+        setPreviewUrl(null);
+        setStatus('stopped');
+      });
+    },
+    [files, log, pipeProcess],
+  );
 
   const stopDev = useCallback(() => {
     devProcRef.current?.kill();
@@ -133,12 +162,13 @@ export default function App() {
         setActivePath(firstCodeFile?.path ?? fetched[0]?.path ?? null);
         log(`Loaded ${fetched.length} files.`, 'info');
         setStatus('ready');
+        await runDev(fetched);
       } catch (e) {
         log(`Pull failed: ${(e as Error).message}`, 'err');
         setStatus('pull failed');
       }
     },
-    [log, stopDev],
+    [log, runDev, stopDev],
   );
 
   const activeFile = files.find((f) => f.path === activePath) ?? null;
@@ -214,7 +244,7 @@ export default function App() {
         booting={booting}
         running={running}
         onLoadRepo={loadRepo}
-        onRun={runDev}
+        onRun={() => runDev()}
         onStop={stopDev}
         onDeploy={deploy}
       />
