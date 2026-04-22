@@ -28,9 +28,21 @@ export default function App() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [ghToken, setGhToken] = useState<string>(() => getStoredToken());
   const [ghUser, setGhUser] = useState<GhUser | null>(null);
+  const [currentRepoKey, setCurrentRepoKey] = useState<string | null>(null);
+  const [exampleEnv, setExampleEnv] = useState<string | null>(null);
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
+
+  const envKey = (repoKey: string) => `env:${repoKey}`;
+  const getStoredEnv = useCallback((repoKey: string | null): string => {
+    if (!repoKey) return '';
+    return localStorage.getItem(envKey(repoKey)) ?? '';
+  }, []);
+  const setStoredEnv = useCallback((repoKey: string, content: string) => {
+    if (content) localStorage.setItem(envKey(repoKey), content);
+    else localStorage.removeItem(envKey(repoKey));
+  }, []);
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
     setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
@@ -214,6 +226,27 @@ export default function App() {
           /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
         );
         setActivePath(firstCodeFile?.path ?? fetched[0]?.path ?? null);
+
+        const repoKey = `${ref.owner}/${ref.repo}`;
+        setCurrentRepoKey(repoKey);
+        const example = fetched.find((f) =>
+          /^\.env\.(example|template|sample)$/i.test(f.path),
+        );
+        setExampleEnv(example?.content ?? null);
+        const savedEnv = getStoredEnv(repoKey);
+        if (savedEnv) {
+          await c.fs.writeFile('/.env.local', savedEnv);
+          log(
+            `Wrote saved .env.local (${savedEnv.split('\n').filter(Boolean).length} values).`,
+            'info',
+          );
+        } else if (example) {
+          log(
+            `This repo has ${example.path}. Click the Env button in the toolbar to set values before running.`,
+            'info',
+          );
+        }
+
         log(`Loaded ${fetched.length} files.`, 'info');
         setStatus('ready');
         await runDev(fetched);
@@ -222,7 +255,7 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [ghToken, log, runDev, stopDev],
+    [ghToken, getStoredEnv, log, runDev, stopDev],
   );
 
   const openUrl = useCallback(
@@ -243,6 +276,26 @@ export default function App() {
       pullRef({ owner, repo, ref: branch });
     },
     [pullRef],
+  );
+
+  const saveEnv = useCallback(
+    async (content: string, restart: boolean) => {
+      const c = containerRef.current;
+      if (!c || !currentRepoKey) return;
+      setStoredEnv(currentRepoKey, content);
+      try {
+        await c.fs.writeFile('/.env.local', content);
+        log(`Saved .env.local for ${currentRepoKey}.`, 'info');
+      } catch (e) {
+        log(`Failed to write .env.local: ${(e as Error).message}`, 'err');
+        return;
+      }
+      if (restart) {
+        stopDev();
+        setTimeout(() => runDev(), 200);
+      }
+    },
+    [currentRepoKey, log, runDev, setStoredEnv, stopDev],
   );
 
   const activeFile = files.find((f) => f.path === activePath) ?? null;
@@ -326,6 +379,10 @@ export default function App() {
         onRun={() => runDev()}
         onStop={stopDev}
         onDeploy={deploy}
+        repoKey={currentRepoKey}
+        envContent={getStoredEnv(currentRepoKey)}
+        exampleEnv={exampleEnv}
+        onSaveEnv={saveEnv}
       />
       <div className="main">
         <aside className="sidebar">

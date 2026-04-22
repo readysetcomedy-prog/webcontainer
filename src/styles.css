@@ -384,6 +384,39 @@ button.primary:hover:not(:disabled) {
   padding: 8px 10px;
 }
 
+.env-panel {
+  width: 460px;
+}
+
+.env-textarea {
+  min-height: 200px;
+  max-height: 360px;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.env-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 .main {
   display: grid;
   grid-template-columns: 220px 1fr 1fr;

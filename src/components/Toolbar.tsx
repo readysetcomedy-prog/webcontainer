@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { GhUser } from '../lib/github';
 import GitHubPanel from './GitHubPanel';
+import EnvPanel from './EnvPanel';
 
 export interface ToolbarProps {
   booting: boolean;
@@ -14,6 +15,10 @@ export interface ToolbarProps {
   onRun: () => void;
   onStop: () => void;
   onDeploy: (token: string, siteId: string) => void;
+  repoKey: string | null;
+  envContent: string;
+  exampleEnv: string | null;
+  onSaveEnv: (content: string, restart: boolean) => void;
 }
 
 export default function Toolbar({
@@ -28,8 +33,13 @@ export default function Toolbar({
   onRun,
   onStop,
   onDeploy,
+  repoKey,
+  envContent,
+  exampleEnv,
+  onSaveEnv,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
+  const [envOpen, setEnvOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   const [netlifyToken, setNetlifyToken] = useState(
     () => localStorage.getItem('netlify_token') ?? '',
@@ -60,6 +70,16 @@ export default function Toolbar({
             Connect GitHub
           </button>
         )}
+        <button
+          onClick={() => setEnvOpen((v) => !v)}
+          disabled={booting || !repoKey}
+          title={
+            repoKey ? `Env vars for ${repoKey}` : 'Open a repo first to edit env vars'
+          }
+        >
+          Env vars
+          {envContent && <span className="dot" />}
+        </button>
         {running ? (
           <button onClick={onStop}>Stop</button>
         ) : (
@@ -89,6 +109,18 @@ export default function Toolbar({
             setGhOpen(false);
             onOpenUrl(url);
           }}
+        />
+      )}
+      {envOpen && (
+        <EnvPanel
+          repoKey={repoKey}
+          initialContent={envContent}
+          exampleContent={exampleEnv}
+          onSave={(content, restart) => {
+            onSaveEnv(content, restart);
+            setEnvOpen(false);
+          }}
+          onClose={() => setEnvOpen(false)}
         />
       )}
       {deployOpen && (
