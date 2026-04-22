@@ -67,15 +67,23 @@ export default function Preview({
       const data = e.data;
       if (!data || typeof data !== 'object') return;
       if (data.type !== 'studio:open' || typeof data.url !== 'string') return;
+      let target: URL;
+      try {
+        target = new URL(data.url);
+      } catch {
+        return;
+      }
+      if (target.origin === window.location.origin) return;
+      const finalUrl = target.toString();
       setTabs((prev) => {
         if (prev.length === 0) {
-          const t: Tab = { id: newId(), url: data.url, nonce: 0 };
+          const t: Tab = { id: newId(), url: finalUrl, nonce: 0 };
           setActiveId(t.id);
           return [t];
         }
         const targetId = activeIdRef.current ?? prev[0].id;
         return prev.map((t) =>
-          t.id === targetId ? { ...t, url: data.url, nonce: t.nonce + 1 } : t,
+          t.id === targetId ? { ...t, url: finalUrl, nonce: t.nonce + 1 } : t,
         );
       });
     }

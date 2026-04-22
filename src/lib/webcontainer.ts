@@ -9,12 +9,20 @@ const BRIDGE_SCRIPT = `
 (function () {
   if (window.__studioBridge) return;
   window.__studioBridge = true;
-  function send(url) {
+  function abs(url) {
     try {
-      window.parent.postMessage({ type: 'studio:open', url: String(url) }, '*');
+      return new URL(String(url), location.href).href;
+    } catch (_) {
+      return null;
+    }
+  }
+  function send(url) {
+    var resolved = abs(url);
+    if (!resolved) return;
+    try {
+      window.parent.postMessage({ type: 'studio:open', url: resolved }, '*');
     } catch (_) {}
   }
-  var origOpen = window.open;
   window.open = function (url) {
     if (url) send(url);
     return null;
