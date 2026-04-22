@@ -5,9 +5,51 @@ import { isBinaryPath } from './github';
 
 let bootPromise: Promise<WebContainer> | null = null;
 
+const BRIDGE_SCRIPT = `
+(function () {
+  if (window.__studioBridge) return;
+  window.__studioBridge = true;
+  function send(url) {
+    try {
+      window.parent.postMessage({ type: 'studio:open', url: String(url) }, '*');
+    } catch (_) {}
+  }
+  var origOpen = window.open;
+  window.open = function (url) {
+    if (url) send(url);
+    return null;
+  };
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var a = t.closest('a[target="_blank"]');
+    if (a && a.href) {
+      e.preventDefault();
+      e.stopPropagation();
+      send(a.href);
+    }
+  }, true);
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (f && f.target === '_blank' && f.action) {
+      e.preventDefault();
+      send(f.action);
+    }
+  }, true);
+})();
+`;
+
 export function getContainer(): Promise<WebContainer> {
   if (!bootPromise) {
-    bootPromise = WebContainer.boot({ coep: 'credentialless' });
+    bootPromise = (async () => {
+      const c = await WebContainer.boot({ coep: 'credentialless' });
+      try {
+        await c.setPreviewScript(BRIDGE_SCRIPT);
+      } catch (e) {
+        console.warn('Failed to install preview bridge script:', e);
+      }
+      return c;
+    })();
   }
   return bootPromise;
 }

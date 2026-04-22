@@ -58,6 +58,19 @@ export default function Preview({
     });
   }, [url]);
 
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      const data = e.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== 'studio:open' || typeof data.url !== 'string') return;
+      const t: Tab = { id: newId(), url: data.url, nonce: 0 };
+      setTabs((prev) => [...prev, t]);
+      setActiveId(t.id);
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
 
   useEffect(() => {
