@@ -7,7 +7,7 @@ let bootPromise: Promise<WebContainer> | null = null;
 
 export function getContainer(): Promise<WebContainer> {
   if (!bootPromise) {
-    bootPromise = WebContainer.boot();
+    bootPromise = WebContainer.boot({ coep: 'credentialless' });
   }
   return bootPromise;
 }

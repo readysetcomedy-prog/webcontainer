@@ -6,14 +6,14 @@ const crossOriginIsolation = {
   configureServer(server: any) {
     server.middlewares.use((_req: any, res: any, next: any) => {
       res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-      res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+      res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
       next();
     });
   },
   configurePreviewServer(server: any) {
     server.middlewares.use((_req: any, res: any, next: any) => {
       res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-      res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+      res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
       next();
     });
   },
