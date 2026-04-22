@@ -29,10 +29,25 @@ export default function App() {
 
   useEffect(() => {
     if (!globalThis.crossOriginIsolated) {
-      log(
-        'Page is not cross-origin isolated — WebContainer cannot start. Ensure the dev server sends COOP/COEP headers.',
-        'err',
-      );
+      const host = window.location.hostname;
+      const secureHost =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '::1' ||
+        window.location.protocol === 'https:';
+      if (!secureHost) {
+        log(
+          `Page is not a secure context (current host: ${host}). WebContainer needs localhost, 127.0.0.1, or HTTPS. Try opening http://localhost:${window.location.port || '5173'} instead.`,
+          'err',
+        );
+        setStatus('not cross-origin isolated');
+      } else {
+        log(
+          'Page is not cross-origin isolated. The dev server should send COOP/COEP headers; try a hard refresh (Cmd/Ctrl+Shift+R) to bypass a cached response.',
+          'err',
+        );
+        setStatus('not cross-origin isolated');
+      }
       return;
     }
     let cancelled = false;
