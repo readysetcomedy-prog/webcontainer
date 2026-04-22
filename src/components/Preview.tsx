@@ -41,6 +41,10 @@ export default function Preview({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [addressInput, setAddressInput] = useState('');
   const lastSeededUrl = useRef<string | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   useEffect(() => {
     if (!url) return;
@@ -63,9 +67,17 @@ export default function Preview({
       const data = e.data;
       if (!data || typeof data !== 'object') return;
       if (data.type !== 'studio:open' || typeof data.url !== 'string') return;
-      const t: Tab = { id: newId(), url: data.url, nonce: 0 };
-      setTabs((prev) => [...prev, t]);
-      setActiveId(t.id);
+      setTabs((prev) => {
+        if (prev.length === 0) {
+          const t: Tab = { id: newId(), url: data.url, nonce: 0 };
+          setActiveId(t.id);
+          return [t];
+        }
+        const targetId = activeIdRef.current ?? prev[0].id;
+        return prev.map((t) =>
+          t.id === targetId ? { ...t, url: data.url, nonce: t.nonce + 1 } : t,
+        );
+      });
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
