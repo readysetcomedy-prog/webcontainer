@@ -28,6 +28,8 @@ import {
 } from './lib/projectsRemote';
 import { supabase } from './lib/supabase';
 import { fetchUserSecrets, saveUserSecrets } from './lib/userSecrets';
+import Toasts from './components/Toasts';
+import type { Toast } from './components/Toasts';
 import type { Session } from '@supabase/supabase-js';
 import LoginGate from './components/LoginGate';
 
@@ -123,6 +125,23 @@ export default function App() {
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
     setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
+  }, []);
+
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  const notify = useCallback(
+    (
+      kind: Toast['kind'],
+      message: string,
+      extras?: { url?: string; urlLabel?: string },
+    ) => {
+      const id = ++toastIdRef.current;
+      setToasts((prev) => [...prev, { id, kind, message, ...extras }]);
+    },
+    [],
+  );
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const getStoredEnv = useCallback(
@@ -386,14 +405,20 @@ export default function App() {
         }
 
         log(`Loaded ${fetched.length} files.`, 'info');
+        notify(
+          'success',
+          `Pulled ${ref.owner}/${ref.repo}@${branchUsed} (${fetched.length} files)`,
+        );
         setStatus('ready');
         await runDev(fetched);
       } catch (e) {
-        log(`Pull failed: ${(e as Error).message}`, 'err');
+        const msg = (e as Error).message;
+        log(`Pull failed: ${msg}`, 'err');
+        notify('error', `Pull failed: ${msg}`);
         setStatus('pull failed');
       }
     },
-    [ghToken, log, persistSecret, runDev, session, stopDev],
+    [ghToken, log, notify, persistSecret, runDev, session, stopDev],
   );
 
   const openUrl = useCallback(
@@ -544,12 +569,18 @@ export default function App() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       log(`Downloaded ${baseName}.zip (${collected.length} files${activeProject?.envContent ? ' + .env.local' : ''}).`, 'info');
+      notify(
+        'success',
+        `Downloaded ${baseName}.zip${activeProject?.envContent ? ' (with .env.local)' : ''}`,
+      );
       setStatus('downloaded');
     } catch (e) {
-      log(`Download failed: ${(e as Error).message}`, 'err');
+      const msg = (e as Error).message;
+      log(`Download failed: ${msg}`, 'err');
+      notify('error', `Download failed: ${msg}`);
       setStatus('download failed');
     }
-  }, [activeProject, currentBranch, currentRepoKey, log]);
+  }, [activeProject, currentBranch, currentRepoKey, log, notify]);
 
   const pushToGitHub = useCallback(async () => {
     if (!ghToken) {
@@ -585,12 +616,22 @@ export default function App() {
         `Pushed ${dirty.length} file${dirty.length === 1 ? '' : 's'} to ${owner}/${repo}@${currentBranch} (${commitSha.slice(0, 7)}).`,
         'info',
       );
+      notify(
+        'success',
+        `Pushed ${dirty.length} file${dirty.length === 1 ? '' : 's'} to ${owner}/${repo}@${currentBranch}`,
+        {
+          url: `https://github.com/${owner}/${repo}/commit/${commitSha}`,
+          urlLabel: `View commit ${commitSha.slice(0, 7)}`,
+        },
+      );
       setStatus(`pushed ${commitSha.slice(0, 7)}`);
     } catch (e) {
-      log(`Push failed: ${(e as Error).message}`, 'err');
+      const msg = (e as Error).message;
+      log(`Push failed: ${msg}`, 'err');
+      notify('error', `Push failed: ${msg}`);
       setStatus('push failed');
     }
-  }, [currentBranch, currentRepoKey, dirtyPaths, files, ghToken, log]);
+  }, [currentBranch, currentRepoKey, dirtyPaths, files, ghToken, log, notify]);
 
   const pullFromGitHub = useCallback(async () => {
     if (!currentRepoKey || !currentBranch) {
@@ -646,8 +687,13 @@ export default function App() {
         }
         setStatus('uploading to Netlify…');
         const result = await deployToNetlify(token, deployFiles, siteId || undefined);
-        log(`Deployed: ${result.ssl_url ?? result.url}`, 'info');
-        setStatus(`deployed: ${result.ssl_url ?? result.url}`);
+        const liveUrl = result.ssl_url ?? result.url;
+        log(`Deployed: ${liveUrl}`, 'info');
+        notify('success', `Deployed to Netlify`, {
+          url: liveUrl,
+          urlLabel: 'Open live site',
+        });
+        setStatus(`deployed: ${liveUrl}`);
         if (activeProject && result.site_id) {
           try {
             const saved = await updateProjectFields(activeProject.id, {
@@ -659,13 +705,14 @@ export default function App() {
             log(`Could not persist site_id: ${(e as Error).message}`, 'err');
           }
         }
-        window.open(result.ssl_url ?? result.url, '_blank');
       } catch (e) {
-        log(`Deploy failed: ${(e as Error).message}`, 'err');
+        const msg = (e as Error).message;
+        log(`Deploy failed: ${msg}`, 'err');
+        notify('error', `Deploy failed: ${msg}`);
         setStatus('deploy failed');
       }
     },
-    [activeProject, files, log, pipeProcess],
+    [activeProject, files, log, notify, pipeProcess],
   );
 
   const netlifySiteIdForToolbar = activeProject?.netlifySiteId ?? '';
@@ -697,6 +744,8 @@ export default function App() {
   }
 
   return (
+    <>
+      <Toasts items={toasts} onDismiss={dismissToast} />
     <div className="app">
       <Toolbar
         booting={booting}
@@ -769,5 +818,6 @@ export default function App() {
         </Panel>
       </Group>
     </div>
+    </>
   );
 }
