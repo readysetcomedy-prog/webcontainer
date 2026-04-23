@@ -53,5 +53,19 @@ export function removeProject(id: string): Project[] {
 }
 
 export function newProjectId(): string {
-  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  const b = new Uint8Array(16);
+  (crypto as Crypto).getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = (n: number) => n.toString(16).padStart(2, '0');
+  return (
+    Array.from(b.subarray(0, 4)).map(h).join('') + '-' +
+    Array.from(b.subarray(4, 6)).map(h).join('') + '-' +
+    Array.from(b.subarray(6, 8)).map(h).join('') + '-' +
+    Array.from(b.subarray(8, 10)).map(h).join('') + '-' +
+    Array.from(b.subarray(10, 16)).map(h).join('')
+  );
 }
