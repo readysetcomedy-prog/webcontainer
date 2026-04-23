@@ -29,7 +29,7 @@ export default function LoginGate() {
   return (
     <div className="login-shell">
       <div className="login-card">
-        <div className="login-brand">WebContainer Studio</div>
+        <div className="login-brand">GetXsite.com</div>
         {sent ? (
           <>
             <div className="login-title">Check your email</div>

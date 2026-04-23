@@ -1,4 +1,4 @@
-# WebContainer Studio
+# GetXsite.com
 
 A self-hosted, bolt.new-style environment. Edits a project in-browser, runs it in a [StackBlitz WebContainer](https://webcontainers.io), pulls source from any public (or authenticated) GitHub repo, and deploys the built output straight to Netlify.
 

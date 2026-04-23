@@ -68,7 +68,7 @@ export default function Toolbar({
 
   return (
     <div className="toolbar">
-      <div className="brand">WebContainer Studio</div>
+      <div className="brand">GetXsite.com</div>
       <div className="toolbar-actions">
         {connected ? (
           <button

@@ -63,7 +63,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     content: `export default function App() {
   return (
     <main style={{ fontFamily: 'system-ui', padding: 40 }}>
-      <h1>Hello from WebContainer Studio</h1>
+      <h1>Hello from GetXsite.com</h1>
       <p>Edit <code>src/App.jsx</code> and the preview will hot reload.</p>
     </main>
   );
