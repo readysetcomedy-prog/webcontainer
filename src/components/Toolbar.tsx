@@ -20,6 +20,7 @@ export interface ToolbarProps {
   exampleEnv: string | null;
   onSaveEnv: (content: string, restart: boolean) => void;
   defaultNetlifySiteId: string;
+  onSaveNetlifySiteId: (value: string) => void;
   dirtyCount: number;
   onPushToGitHub: () => void;
   onPullFromGitHub: () => void;
@@ -42,6 +43,7 @@ export default function Toolbar({
   exampleEnv,
   onSaveEnv,
   defaultNetlifySiteId,
+  onSaveNetlifySiteId,
   dirtyCount,
   onPushToGitHub,
   onPullFromGitHub,
@@ -183,12 +185,17 @@ export default function Toolbar({
           </label>
           <label>
             Netlify site id
-            <span className="hint-text">Leave blank to create a new site.</span>
+            <span className="hint-text">
+              Leave blank to create a new site.
+              {repoKey
+                ? ' Saved per project; next deploy will update this site.'
+                : ''}
+            </span>
             <input
               value={siteId}
               onChange={(e) => {
                 setSiteId(e.target.value);
-                localStorage.setItem('netlify_site_id', e.target.value);
+                onSaveNetlifySiteId(e.target.value);
               }}
               placeholder="optional"
             />

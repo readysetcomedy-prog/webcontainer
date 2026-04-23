@@ -544,6 +544,25 @@ export default function App() {
   const netlifySiteIdForToolbar =
     activeProject?.netlifySiteId ?? localStorage.getItem('netlify_site_id') ?? '';
 
+  const saveNetlifySiteId = useCallback(
+    (value: string) => {
+      if (activeProject) {
+        setProjects(
+          upsertProject({
+            ...activeProject,
+            netlifySiteId: value || undefined,
+            updatedAt: Date.now(),
+          }),
+        );
+      } else if (value) {
+        localStorage.setItem('netlify_site_id', value);
+      } else {
+        localStorage.removeItem('netlify_site_id');
+      }
+    },
+    [activeProject],
+  );
+
   return (
     <div className="app">
       <Toolbar
@@ -563,6 +582,7 @@ export default function App() {
         exampleEnv={exampleEnv}
         onSaveEnv={saveEnv}
         defaultNetlifySiteId={netlifySiteIdForToolbar}
+        onSaveNetlifySiteId={saveNetlifySiteId}
         dirtyCount={dirtyPaths.size}
         onPushToGitHub={pushToGitHub}
         onPullFromGitHub={pullFromGitHub}
