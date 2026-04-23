@@ -17,6 +17,7 @@ import {
   pushCommit,
 } from './lib/github';
 import { deployToNetlify } from './lib/netlify';
+import JSZip from 'jszip';
 import { STARTER_FILES } from './lib/starter';
 import type { Project } from './lib/projects';
 import { newProjectId } from './lib/projects';
@@ -522,6 +523,41 @@ export default function App() {
     [activeFile, log],
   );
 
+  const downloadProject = useCallback(async () => {
+    const c = containerRef.current;
+    if (!c) return;
+    try {
+      setStatus('preparing download…');
+      const collected = await readAllFiles(c);
+      const zip = new JSZip();
+      for (const f of collected) {
+        zip.file(f.path.replace(/^\//, ''), f.content);
+      }
+      if (activeProject?.envContent) {
+        zip.file('.env.local', activeProject.envContent);
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const baseName = activeProject
+        ? `${activeProject.repo}-${activeProject.branch.replace(/\//g, '_')}`
+        : currentRepoKey
+        ? `${currentRepoKey.split('/')[1]}-${(currentBranch ?? 'main').replace(/\//g, '_')}`
+        : 'project';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${baseName}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      log(`Downloaded ${baseName}.zip (${collected.length} files${activeProject?.envContent ? ' + .env.local' : ''}).`, 'info');
+      setStatus('downloaded');
+    } catch (e) {
+      log(`Download failed: ${(e as Error).message}`, 'err');
+      setStatus('download failed');
+    }
+  }, [activeProject, currentBranch, currentRepoKey, log]);
+
   const pushToGitHub = useCallback(async () => {
     if (!ghToken) {
       log('Connect GitHub first to push.', 'err');
@@ -697,6 +733,8 @@ export default function App() {
         dirtyCount={dirtyPaths.size}
         onPushToGitHub={pushToGitHub}
         onPullFromGitHub={pullFromGitHub}
+        onDownload={downloadProject}
+        canDownload={!!currentRepoKey}
         userEmail={session.user.email ?? ''}
         onSignOut={() => supabase.auth.signOut()}
       />

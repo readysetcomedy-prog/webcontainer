@@ -26,6 +26,8 @@ export interface ToolbarProps {
   dirtyCount: number;
   onPushToGitHub: () => void;
   onPullFromGitHub: () => void;
+  onDownload: () => void;
+  canDownload: boolean;
   userEmail: string;
   onSignOut: () => void;
 }
@@ -53,6 +55,8 @@ export default function Toolbar({
   dirtyCount,
   onPushToGitHub,
   onPullFromGitHub,
+  onDownload,
+  canDownload,
   userEmail,
   onSignOut,
 }: ToolbarProps) {
@@ -123,6 +127,17 @@ export default function Toolbar({
         >
           Push
           {dirtyCount > 0 && <span className="count-badge">{dirtyCount}</span>}
+        </button>
+        <button
+          onClick={onDownload}
+          disabled={booting || !canDownload}
+          title={
+            canDownload
+              ? 'Download the project as a ZIP, including .env.local'
+              : 'Open a repo first'
+          }
+        >
+          Download
         </button>
         {running ? (
           <button onClick={onStop}>Stop</button>
