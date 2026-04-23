@@ -12,26 +12,21 @@ import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
 import type { GhUser } from './lib/github';
 import {
   fetchRepoFiles,
-  getStoredToken,
   getUser,
   parseRepoInput,
   pushCommit,
-  setStoredToken,
 } from './lib/github';
 import { deployToNetlify } from './lib/netlify';
 import { STARTER_FILES } from './lib/starter';
 import type { Project } from './lib/projects';
-import {
-  getActiveProjectId,
-  newProjectId,
-  setActiveProjectId,
-} from './lib/projects';
+import { newProjectId } from './lib/projects';
 import {
   deleteProjectRemote,
   fetchProjects,
   upsertProjectRemote,
 } from './lib/projectsRemote';
 import { supabase } from './lib/supabase';
+import { fetchUserSecrets, saveUserSecrets } from './lib/userSecrets';
 import type { Session } from '@supabase/supabase-js';
 import LoginGate from './components/LoginGate';
 
@@ -46,15 +41,16 @@ export default function App() {
   const [booting, setBooting] = useState(false);
   const [running, setRunning] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
-  const [ghToken, setGhToken] = useState<string>(() => getStoredToken());
+  const [ghToken, setGhTokenState] = useState<string>('');
   const [ghUser, setGhUser] = useState<GhUser | null>(null);
+  const [netlifyToken, setNetlifyTokenState] = useState<string>('');
   const [currentRepoKey, setCurrentRepoKey] = useState<string | null>(null);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [exampleEnv, setExampleEnv] = useState<string | null>(null);
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(() => new Set());
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
-    () => getActiveProjectId(),
+    null,
   );
   const [session, setSession] = useState<Session | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -78,51 +74,75 @@ export default function App() {
   useEffect(() => {
     if (!session) {
       setProjects([]);
+      setGhTokenState('');
+      setGhUser(null);
+      setNetlifyTokenState('');
+      setActiveProjectIdState(null);
       return;
     }
-    fetchProjects()
-      .then(setProjects)
-      .catch((e) => console.error('Failed to load projects', e));
+    (async () => {
+      try {
+        const [projs, secrets] = await Promise.all([
+          fetchProjects(),
+          fetchUserSecrets(),
+        ]);
+        setProjects(projs);
+        setGhTokenState(secrets.githubToken);
+        setNetlifyTokenState(secrets.netlifyToken);
+        if (
+          secrets.lastActiveProjectId &&
+          projs.some((p) => p.id === secrets.lastActiveProjectId)
+        ) {
+          setActiveProjectIdState(secrets.lastActiveProjectId);
+        }
+      } catch (e) {
+        console.error('Failed to load session data', e);
+      }
+    })();
   }, [session]);
+
+  const persistSecret = useCallback(
+    (patch: {
+      githubToken?: string;
+      netlifyToken?: string;
+      lastActiveProjectId?: string | null;
+    }) => {
+      if (!session) return;
+      saveUserSecrets(session.user.id, patch).catch((e) =>
+        console.error('save secret failed', e),
+      );
+    },
+    [session],
+  );
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  const envKey = (repoKey: string) => `env:${repoKey}`;
   const getStoredEnv = useCallback(
-    (repoKey: string | null): string => {
-      if (activeProject) return activeProject.envContent;
-      if (!repoKey) return '';
-      return localStorage.getItem(envKey(repoKey)) ?? '';
-    },
+    (): string => activeProject?.envContent ?? '',
     [activeProject],
   );
   const setStoredEnv = useCallback(
-    (repoKey: string, content: string) => {
-      if (activeProject && session) {
-        const updated: Project = {
-          ...activeProject,
-          envContent: content,
-          updatedAt: Date.now(),
-        };
-        upsertProjectRemote(updated, session.user.id)
-          .then((saved) =>
-            setProjects((prev) => {
-              const idx = prev.findIndex((p) => p.id === saved.id);
-              if (idx < 0) return [saved, ...prev];
-              const next = [...prev];
-              next[idx] = saved;
-              return next;
-            }),
-          )
-          .catch((e) => console.error('save env failed', e));
-      } else if (content) {
-        localStorage.setItem(envKey(repoKey), content);
-      } else {
-        localStorage.removeItem(envKey(repoKey));
-      }
+    (_repoKey: string, content: string) => {
+      if (!activeProject || !session) return;
+      const updated: Project = {
+        ...activeProject,
+        envContent: content,
+        updatedAt: Date.now(),
+      };
+      upsertProjectRemote(updated, session.user.id)
+        .then((saved) =>
+          setProjects((prev) => {
+            const idx = prev.findIndex((p) => p.id === saved.id);
+            if (idx < 0) return [saved, ...prev];
+            const next = [...prev];
+            next[idx] = saved;
+            return next;
+          }),
+        )
+        .catch((e) => console.error('save env failed', e));
     },
     [activeProject, session],
   );
@@ -141,25 +161,36 @@ export default function App() {
       .catch((e) => {
         if (cancelled) return;
         log(`Stored GitHub token is no longer valid: ${(e as Error).message}`, 'err');
-        setStoredToken('');
-        setGhToken('');
+        setGhTokenState('');
+        persistSecret({ githubToken: '' });
       });
     return () => {
       cancelled = true;
     };
-  }, [ghToken, ghUser, log]);
+  }, [ghToken, ghUser, log, persistSecret]);
 
-  const connectGitHub = useCallback((token: string, user: GhUser) => {
-    setStoredToken(token);
-    setGhToken(token);
-    setGhUser(user);
-  }, []);
+  const connectGitHub = useCallback(
+    (token: string, user: GhUser) => {
+      setGhTokenState(token);
+      setGhUser(user);
+      persistSecret({ githubToken: token });
+    },
+    [persistSecret],
+  );
 
   const disconnectGitHub = useCallback(() => {
-    setStoredToken('');
-    setGhToken('');
+    setGhTokenState('');
     setGhUser(null);
-  }, []);
+    persistSecret({ githubToken: '' });
+  }, [persistSecret]);
+
+  const setNetlifyToken = useCallback(
+    (value: string) => {
+      setNetlifyTokenState(value);
+      persistSecret({ netlifyToken: value });
+    },
+    [persistSecret],
+  );
 
   useEffect(() => {
     if (!globalThis.crossOriginIsolated) {
@@ -319,9 +350,7 @@ export default function App() {
         );
         setExampleEnv(example ? textOf(example.content) : null);
 
-        const envToUse =
-          envOverride ??
-          (activeProject ? activeProject.envContent : localStorage.getItem(envKey(repoKey)) ?? '');
+        const envToUse = envOverride ?? activeProject?.envContent ?? '';
         if (envToUse) {
           await c.fs.writeFile('/.env.local', envToUse);
           log(
@@ -350,8 +379,8 @@ export default function App() {
     async (repoInput: string) => {
       try {
         const ref = parseRepoInput(repoInput);
-        setActiveProjectId(null);
         setActiveProjectIdState(null);
+        persistSecret({ lastActiveProjectId: null });
         await pullRef(ref);
       } catch (e) {
         log(`Pull failed: ${(e as Error).message}`, 'err');
@@ -363,29 +392,27 @@ export default function App() {
 
   const selectBranch = useCallback(
     (owner: string, repo: string, branch: string) => {
-      setActiveProjectId(null);
       setActiveProjectIdState(null);
+      persistSecret({ lastActiveProjectId: null });
       pullRef({ owner, repo, ref: branch });
     },
-    [pullRef],
+    [persistSecret, pullRef],
   );
 
   const openProject = useCallback(
     (p: Project) => {
-      setActiveProjectId(p.id);
       setActiveProjectIdState(p.id);
+      persistSecret({ lastActiveProjectId: p.id });
       pullRef({ owner: p.owner, repo: p.repo, ref: p.branch }, p.envContent);
     },
-    [pullRef],
+    [persistSecret, pullRef],
   );
 
   const saveCurrentProject = useCallback(
     async (name: string) => {
       if (!currentRepoKey || !currentBranch || !session) return;
       const [owner, repo] = currentRepoKey.split('/');
-      const envContent = activeProject
-        ? activeProject.envContent
-        : localStorage.getItem(envKey(currentRepoKey)) ?? '';
+      const envContent = activeProject?.envContent ?? '';
       const project: Project = {
         id: activeProject?.id ?? newProjectId(),
         name,
@@ -405,8 +432,8 @@ export default function App() {
           next[idx] = saved;
           return next;
         });
-        setActiveProjectId(saved.id);
         setActiveProjectIdState(saved.id);
+        persistSecret({ lastActiveProjectId: saved.id });
         log(`Saved project "${name}".`, 'info');
       } catch (e) {
         log(`Save project failed: ${(e as Error).message}`, 'err');
@@ -440,13 +467,13 @@ export default function App() {
         setProjects((prev) => prev.filter((p) => p.id !== id));
         if (activeProjectId === id) {
           setActiveProjectIdState(null);
-          setActiveProjectId(null);
+          persistSecret({ lastActiveProjectId: null });
         }
       } catch (e) {
         log(`Delete failed: ${(e as Error).message}`, 'err');
       }
     },
-    [activeProjectId, log],
+    [activeProjectId, log, persistSecret],
   );
 
   const saveEnv = useCallback(
@@ -617,29 +644,23 @@ export default function App() {
     [activeProject, files, log, pipeProcess],
   );
 
-  const netlifySiteIdForToolbar =
-    activeProject?.netlifySiteId ?? localStorage.getItem('netlify_site_id') ?? '';
+  const netlifySiteIdForToolbar = activeProject?.netlifySiteId ?? '';
 
   const saveNetlifySiteId = useCallback(
     (value: string) => {
-      if (activeProject && session) {
-        upsertProjectRemote(
-          {
-            ...activeProject,
-            netlifySiteId: value || undefined,
-            updatedAt: Date.now(),
-          },
-          session.user.id,
+      if (!activeProject || !session) return;
+      upsertProjectRemote(
+        {
+          ...activeProject,
+          netlifySiteId: value || undefined,
+          updatedAt: Date.now(),
+        },
+        session.user.id,
+      )
+        .then((saved) =>
+          setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p))),
         )
-          .then((saved) =>
-            setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p))),
-          )
-          .catch((e) => console.error('save site id failed', e));
-      } else if (value) {
-        localStorage.setItem('netlify_site_id', value);
-      } else {
-        localStorage.removeItem('netlify_site_id');
-      }
+        .catch((e) => console.error('save site id failed', e));
     },
     [activeProject, session],
   );
@@ -666,11 +687,13 @@ export default function App() {
         onStop={stopDev}
         onDeploy={deploy}
         repoKey={currentRepoKey}
-        envContent={getStoredEnv(currentRepoKey)}
+        envContent={getStoredEnv()}
         exampleEnv={exampleEnv}
         onSaveEnv={saveEnv}
         defaultNetlifySiteId={netlifySiteIdForToolbar}
         onSaveNetlifySiteId={saveNetlifySiteId}
+        netlifyToken={netlifyToken}
+        onSaveNetlifyToken={setNetlifyToken}
         dirtyCount={dirtyPaths.size}
         onPushToGitHub={pushToGitHub}
         onPullFromGitHub={pullFromGitHub}

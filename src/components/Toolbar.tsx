@@ -21,6 +21,8 @@ export interface ToolbarProps {
   onSaveEnv: (content: string, restart: boolean) => void;
   defaultNetlifySiteId: string;
   onSaveNetlifySiteId: (value: string) => void;
+  netlifyToken: string;
+  onSaveNetlifyToken: (value: string) => void;
   dirtyCount: number;
   onPushToGitHub: () => void;
   onPullFromGitHub: () => void;
@@ -46,6 +48,8 @@ export default function Toolbar({
   onSaveEnv,
   defaultNetlifySiteId,
   onSaveNetlifySiteId,
+  netlifyToken,
+  onSaveNetlifyToken,
   dirtyCount,
   onPushToGitHub,
   onPullFromGitHub,
@@ -55,9 +59,6 @@ export default function Toolbar({
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
-  const [netlifyToken, setNetlifyToken] = useState(
-    () => localStorage.getItem('netlify_token') ?? '',
-  );
   const [siteId, setSiteId] = useState(defaultNetlifySiteId);
 
   useEffect(() => {
@@ -187,10 +188,7 @@ export default function Toolbar({
               autoFocus
               type="password"
               value={netlifyToken}
-              onChange={(e) => {
-                setNetlifyToken(e.target.value);
-                localStorage.setItem('netlify_token', e.target.value);
-              }}
+              onChange={(e) => onSaveNetlifyToken(e.target.value)}
               placeholder="nfp_..."
             />
           </label>
