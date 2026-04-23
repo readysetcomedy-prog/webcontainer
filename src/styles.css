@@ -501,6 +501,15 @@ button.primary:hover:not(:disabled) {
   font-size: 14px;
 }
 
+.login-info {
+  color: var(--ok);
+  font-size: 12px;
+  background: rgba(125, 212, 159, 0.08);
+  border: 1px solid rgba(125, 212, 159, 0.25);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
 .signout-button {
   color: var(--fg-dim);
 }
