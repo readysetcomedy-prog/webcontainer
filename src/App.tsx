@@ -20,11 +20,11 @@ import { deployToNetlify } from './lib/netlify';
 import JSZip from 'jszip';
 import { STARTER_FILES } from './lib/starter';
 import type { Project } from './lib/projects';
-import { newProjectId } from './lib/projects';
 import {
   deleteProjectRemote,
   fetchProjects,
-  upsertProjectRemote,
+  findOrCreateProject,
+  updateProjectFields,
 } from './lib/projectsRemote';
 import { supabase } from './lib/supabase';
 import { fetchUserSecrets, saveUserSecrets } from './lib/userSecrets';
@@ -121,19 +121,21 @@ export default function App() {
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
+  const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
+    setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
+  }, []);
+
   const getStoredEnv = useCallback(
     (): string => activeProject?.envContent ?? '',
     [activeProject],
   );
   const setStoredEnv = useCallback(
     (_repoKey: string, content: string) => {
-      if (!activeProject || !session) return;
-      const updated: Project = {
-        ...activeProject,
-        envContent: content,
-        updatedAt: Date.now(),
-      };
-      upsertProjectRemote(updated, session.user.id)
+      if (!activeProject) {
+        log('Env not saved: no active project yet. Open a repo first.', 'err');
+        return;
+      }
+      updateProjectFields(activeProject.id, { envContent: content })
         .then((saved) =>
           setProjects((prev) => {
             const idx = prev.findIndex((p) => p.id === saved.id);
@@ -143,14 +145,10 @@ export default function App() {
             return next;
           }),
         )
-        .catch((e) => console.error('save env failed', e));
+        .catch((e) => log(`Save env failed: ${(e as Error).message}`, 'err'));
     },
-    [activeProject, session],
+    [activeProject, log],
   );
-
-  const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
-    setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
-  }, []);
 
   useEffect(() => {
     if (!ghToken || ghUser) return;
@@ -321,9 +319,9 @@ export default function App() {
   }, []);
 
   const pullRef = useCallback(
-    async (ref: { owner: string; repo: string; ref?: string }, envOverride?: string) => {
+    async (ref: { owner: string; repo: string; ref?: string }) => {
       const c = containerRef.current;
-      if (!c) return;
+      if (!c || !session) return;
       try {
         stopDev();
         setStatus(`fetching ${ref.owner}/${ref.repo}…`);
@@ -345,17 +343,39 @@ export default function App() {
 
         const repoKey = `${ref.owner}/${ref.repo}`;
         setCurrentRepoKey(repoKey);
-        setCurrentBranch(ref.ref ?? null);
+        const branchUsed = ref.ref ?? 'main';
+        setCurrentBranch(branchUsed);
         const example = fetched.find((f) =>
           /^\.env\.(example|template|sample)$/i.test(f.path),
         );
         setExampleEnv(example ? textOf(example.content) : null);
 
-        const envToUse = envOverride ?? activeProject?.envContent ?? '';
-        if (envToUse) {
-          await c.fs.writeFile('/.env.local', envToUse);
+        let project: Project;
+        try {
+          project = await findOrCreateProject(
+            session.user.id,
+            ref.owner,
+            ref.repo,
+            branchUsed,
+          );
+          setProjects((prev) => {
+            const idx = prev.findIndex((p) => p.id === project.id);
+            if (idx < 0) return [project, ...prev];
+            const next = [...prev];
+            next[idx] = project;
+            return next;
+          });
+          setActiveProjectIdState(project.id);
+          persistSecret({ lastActiveProjectId: project.id });
+        } catch (e) {
+          log(`Couldn't save project record: ${(e as Error).message}`, 'err');
+          return;
+        }
+
+        if (project.envContent) {
+          await c.fs.writeFile('/.env.local', project.envContent);
           log(
-            `Wrote .env.local (${envToUse.split('\n').filter(Boolean).length} values).`,
+            `Wrote .env.local (${project.envContent.split('\n').filter(Boolean).length} values).`,
             'info',
           );
         } else if (example) {
@@ -373,15 +393,13 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [activeProject, ghToken, log, runDev, stopDev],
+    [ghToken, log, persistSecret, runDev, session, stopDev],
   );
 
   const openUrl = useCallback(
     async (repoInput: string) => {
       try {
         const ref = parseRepoInput(repoInput);
-        setActiveProjectIdState(null);
-        persistSecret({ lastActiveProjectId: null });
         await pullRef(ref);
       } catch (e) {
         log(`Pull failed: ${(e as Error).message}`, 'err');
@@ -393,72 +411,47 @@ export default function App() {
 
   const selectBranch = useCallback(
     (owner: string, repo: string, branch: string) => {
-      setActiveProjectIdState(null);
-      persistSecret({ lastActiveProjectId: null });
       pullRef({ owner, repo, ref: branch });
     },
-    [persistSecret, pullRef],
+    [pullRef],
   );
 
   const openProject = useCallback(
     (p: Project) => {
-      setActiveProjectIdState(p.id);
-      persistSecret({ lastActiveProjectId: p.id });
-      pullRef({ owner: p.owner, repo: p.repo, ref: p.branch }, p.envContent);
+      pullRef({ owner: p.owner, repo: p.repo, ref: p.branch });
     },
-    [persistSecret, pullRef],
+    [pullRef],
   );
 
   const saveCurrentProject = useCallback(
     async (name: string) => {
-      if (!currentRepoKey || !currentBranch || !session) return;
-      const [owner, repo] = currentRepoKey.split('/');
-      const envContent = activeProject?.envContent ?? '';
-      const project: Project = {
-        id: activeProject?.id ?? newProjectId(),
-        name,
-        owner,
-        repo,
-        branch: currentBranch,
-        envContent,
-        netlifySiteId: activeProject?.netlifySiteId,
-        updatedAt: Date.now(),
-      };
+      if (!activeProject) {
+        log('Open a repo first — it saves automatically.', 'err');
+        return;
+      }
       try {
-        const saved = await upsertProjectRemote(project, session.user.id);
-        setProjects((prev) => {
-          const idx = prev.findIndex((p) => p.id === saved.id);
-          if (idx < 0) return [saved, ...prev];
-          const next = [...prev];
-          next[idx] = saved;
-          return next;
-        });
-        setActiveProjectIdState(saved.id);
-        persistSecret({ lastActiveProjectId: saved.id });
-        log(`Saved project "${name}".`, 'info');
+        const saved = await updateProjectFields(activeProject.id, { name });
+        setProjects((prev) =>
+          prev.map((x) => (x.id === saved.id ? saved : x)),
+        );
+        log(`Renamed project to "${name}".`, 'info');
       } catch (e) {
-        log(`Save project failed: ${(e as Error).message}`, 'err');
+        log(`Rename failed: ${(e as Error).message}`, 'err');
       }
     },
-    [activeProject, currentBranch, currentRepoKey, log, session],
+    [activeProject, log],
   );
 
   const renameProject = useCallback(
     async (id: string, name: string) => {
-      if (!session) return;
-      const p = projects.find((x) => x.id === id);
-      if (!p) return;
       try {
-        const saved = await upsertProjectRemote(
-          { ...p, name, updatedAt: Date.now() },
-          session.user.id,
-        );
+        const saved = await updateProjectFields(id, { name });
         setProjects((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
       } catch (e) {
         log(`Rename failed: ${(e as Error).message}`, 'err');
       }
     },
-    [log, projects, session],
+    [log],
   );
 
   const deleteProject = useCallback(
@@ -655,16 +648,11 @@ export default function App() {
         const result = await deployToNetlify(token, deployFiles, siteId || undefined);
         log(`Deployed: ${result.ssl_url ?? result.url}`, 'info');
         setStatus(`deployed: ${result.ssl_url ?? result.url}`);
-        if (activeProject && result.site_id && session) {
+        if (activeProject && result.site_id) {
           try {
-            const saved = await upsertProjectRemote(
-              {
-                ...activeProject,
-                netlifySiteId: result.site_id,
-                updatedAt: Date.now(),
-              },
-              session.user.id,
-            );
+            const saved = await updateProjectFields(activeProject.id, {
+              netlifySiteId: result.site_id,
+            });
             setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
             log(`Saved site_id to project "${activeProject.name}".`, 'info');
           } catch (e) {
@@ -684,21 +672,21 @@ export default function App() {
 
   const saveNetlifySiteId = useCallback(
     (value: string) => {
-      if (!activeProject || !session) return;
-      upsertProjectRemote(
-        {
-          ...activeProject,
-          netlifySiteId: value || undefined,
-          updatedAt: Date.now(),
-        },
-        session.user.id,
-      )
+      if (!activeProject) {
+        log('Site id not saved: no active project yet. Open a repo first.', 'err');
+        return;
+      }
+      updateProjectFields(activeProject.id, {
+        netlifySiteId: value || undefined,
+      })
         .then((saved) =>
           setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p))),
         )
-        .catch((e) => console.error('save site id failed', e));
+        .catch((e) =>
+          log(`Save site id failed: ${(e as Error).message}`, 'err'),
+        );
     },
-    [activeProject, session],
+    [activeProject, log],
   );
 
   if (authChecking) {

@@ -35,21 +35,74 @@ export async function fetchProjects(): Promise<Project[]> {
   return (data as ProjectRow[]).map(rowToProject);
 }
 
-export async function upsertProjectRemote(p: Project, userId: string): Promise<Project> {
-  const payload = {
-    id: p.id,
-    user_id: userId,
-    name: p.name,
-    owner: p.owner,
-    repo: p.repo,
-    branch: p.branch,
-    env_content: p.envContent,
-    netlify_site_id: p.netlifySiteId ?? null,
-    updated_at: new Date().toISOString(),
-  };
+export async function findProjectByRepo(
+  owner: string,
+  repo: string,
+): Promise<Project | null> {
   const { data, error } = await supabase
     .from('projects')
-    .upsert(payload, { onConflict: 'id' })
+    .select('*')
+    .eq('owner', owner)
+    .eq('repo', repo)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToProject(data as ProjectRow) : null;
+}
+
+export async function findOrCreateProject(
+  userId: string,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<Project> {
+  const existing = await findProjectByRepo(owner, repo);
+  if (existing) {
+    if (existing.branch !== branch) {
+      const { data, error } = await supabase
+        .from('projects')
+        .update({ branch, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return rowToProject(data as ProjectRow);
+    }
+    return existing;
+  }
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({
+      user_id: userId,
+      name: `${owner}/${repo}`,
+      owner,
+      repo,
+      branch,
+      env_content: '',
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToProject(data as ProjectRow);
+}
+
+export async function updateProjectFields(
+  id: string,
+  patch: Partial<
+    Pick<Project, 'name' | 'branch' | 'envContent' | 'netlifySiteId'>
+  >,
+): Promise<Project> {
+  const payload: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (patch.name !== undefined) payload.name = patch.name;
+  if (patch.branch !== undefined) payload.branch = patch.branch;
+  if (patch.envContent !== undefined) payload.env_content = patch.envContent;
+  if (patch.netlifySiteId !== undefined)
+    payload.netlify_site_id = patch.netlifySiteId || null;
+  const { data, error } = await supabase
+    .from('projects')
+    .update(payload)
+    .eq('id', id)
     .select()
     .single();
   if (error) throw error;
