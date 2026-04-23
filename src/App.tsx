@@ -23,12 +23,17 @@ import { STARTER_FILES } from './lib/starter';
 import type { Project } from './lib/projects';
 import {
   getActiveProjectId,
-  loadProjects,
   newProjectId,
-  removeProject,
   setActiveProjectId,
-  upsertProject,
 } from './lib/projects';
+import {
+  deleteProjectRemote,
+  fetchProjects,
+  upsertProjectRemote,
+} from './lib/projectsRemote';
+import { supabase } from './lib/supabase';
+import type { Session } from '@supabase/supabase-js';
+import LoginGate from './components/LoginGate';
 
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
@@ -47,10 +52,38 @@ export default function App() {
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [exampleEnv, setExampleEnv] = useState<string | null>(null);
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(() => new Set());
-  const [projects, setProjects] = useState<Project[]>(() => loadProjects());
+  const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
     () => getActiveProjectId(),
   );
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSession(data.session);
+      setAuthChecking(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+    });
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setProjects([]);
+      return;
+    }
+    fetchProjects()
+      .then(setProjects)
+      .catch((e) => console.error('Failed to load projects', e));
+  }, [session]);
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
@@ -68,20 +101,30 @@ export default function App() {
   );
   const setStoredEnv = useCallback(
     (repoKey: string, content: string) => {
-      if (activeProject) {
+      if (activeProject && session) {
         const updated: Project = {
           ...activeProject,
           envContent: content,
           updatedAt: Date.now(),
         };
-        setProjects(upsertProject(updated));
+        upsertProjectRemote(updated, session.user.id)
+          .then((saved) =>
+            setProjects((prev) => {
+              const idx = prev.findIndex((p) => p.id === saved.id);
+              if (idx < 0) return [saved, ...prev];
+              const next = [...prev];
+              next[idx] = saved;
+              return next;
+            }),
+          )
+          .catch((e) => console.error('save env failed', e));
       } else if (content) {
         localStorage.setItem(envKey(repoKey), content);
       } else {
         localStorage.removeItem(envKey(repoKey));
       }
     },
-    [activeProject],
+    [activeProject, session],
   );
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
@@ -337,8 +380,8 @@ export default function App() {
   );
 
   const saveCurrentProject = useCallback(
-    (name: string) => {
-      if (!currentRepoKey || !currentBranch) return;
+    async (name: string) => {
+      if (!currentRepoKey || !currentBranch || !session) return;
       const [owner, repo] = currentRepoKey.split('/');
       const envContent = activeProject
         ? activeProject.envContent
@@ -353,30 +396,57 @@ export default function App() {
         netlifySiteId: activeProject?.netlifySiteId,
         updatedAt: Date.now(),
       };
-      setProjects(upsertProject(project));
-      setActiveProjectId(project.id);
-      setActiveProjectIdState(project.id);
-      log(`Saved project "${name}".`, 'info');
-    },
-    [activeProject, currentBranch, currentRepoKey, log],
-  );
-
-  const renameProject = useCallback((id: string, name: string) => {
-    const all = loadProjects();
-    const p = all.find((x) => x.id === id);
-    if (!p) return;
-    setProjects(upsertProject({ ...p, name, updatedAt: Date.now() }));
-  }, []);
-
-  const deleteProject = useCallback(
-    (id: string) => {
-      const next = removeProject(id);
-      setProjects(next);
-      if (activeProjectId === id) {
-        setActiveProjectIdState(null);
+      try {
+        const saved = await upsertProjectRemote(project, session.user.id);
+        setProjects((prev) => {
+          const idx = prev.findIndex((p) => p.id === saved.id);
+          if (idx < 0) return [saved, ...prev];
+          const next = [...prev];
+          next[idx] = saved;
+          return next;
+        });
+        setActiveProjectId(saved.id);
+        setActiveProjectIdState(saved.id);
+        log(`Saved project "${name}".`, 'info');
+      } catch (e) {
+        log(`Save project failed: ${(e as Error).message}`, 'err');
       }
     },
-    [activeProjectId],
+    [activeProject, currentBranch, currentRepoKey, log, session],
+  );
+
+  const renameProject = useCallback(
+    async (id: string, name: string) => {
+      if (!session) return;
+      const p = projects.find((x) => x.id === id);
+      if (!p) return;
+      try {
+        const saved = await upsertProjectRemote(
+          { ...p, name, updatedAt: Date.now() },
+          session.user.id,
+        );
+        setProjects((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+      } catch (e) {
+        log(`Rename failed: ${(e as Error).message}`, 'err');
+      }
+    },
+    [log, projects, session],
+  );
+
+  const deleteProject = useCallback(
+    async (id: string) => {
+      try {
+        await deleteProjectRemote(id);
+        setProjects((prev) => prev.filter((p) => p.id !== id));
+        if (activeProjectId === id) {
+          setActiveProjectIdState(null);
+          setActiveProjectId(null);
+        }
+      } catch (e) {
+        log(`Delete failed: ${(e as Error).message}`, 'err');
+      }
+    },
+    [activeProjectId, log],
   );
 
   const saveEnv = useCallback(
@@ -522,15 +592,21 @@ export default function App() {
         const result = await deployToNetlify(token, deployFiles, siteId || undefined);
         log(`Deployed: ${result.ssl_url ?? result.url}`, 'info');
         setStatus(`deployed: ${result.ssl_url ?? result.url}`);
-        if (activeProject && result.site_id) {
-          setProjects(
-            upsertProject({
-              ...activeProject,
-              netlifySiteId: result.site_id,
-              updatedAt: Date.now(),
-            }),
-          );
-          log(`Saved site_id to project "${activeProject.name}".`, 'info');
+        if (activeProject && result.site_id && session) {
+          try {
+            const saved = await upsertProjectRemote(
+              {
+                ...activeProject,
+                netlifySiteId: result.site_id,
+                updatedAt: Date.now(),
+              },
+              session.user.id,
+            );
+            setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+            log(`Saved site_id to project "${activeProject.name}".`, 'info');
+          } catch (e) {
+            log(`Could not persist site_id: ${(e as Error).message}`, 'err');
+          }
         }
         window.open(result.ssl_url ?? result.url, '_blank');
       } catch (e) {
@@ -546,22 +622,34 @@ export default function App() {
 
   const saveNetlifySiteId = useCallback(
     (value: string) => {
-      if (activeProject) {
-        setProjects(
-          upsertProject({
+      if (activeProject && session) {
+        upsertProjectRemote(
+          {
             ...activeProject,
             netlifySiteId: value || undefined,
             updatedAt: Date.now(),
-          }),
-        );
+          },
+          session.user.id,
+        )
+          .then((saved) =>
+            setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p))),
+          )
+          .catch((e) => console.error('save site id failed', e));
       } else if (value) {
         localStorage.setItem('netlify_site_id', value);
       } else {
         localStorage.removeItem('netlify_site_id');
       }
     },
-    [activeProject],
+    [activeProject, session],
   );
+
+  if (authChecking) {
+    return <div className="login-shell"><div className="login-card">Loading…</div></div>;
+  }
+  if (!session) {
+    return <LoginGate />;
+  }
 
   return (
     <div className="app">
@@ -586,6 +674,8 @@ export default function App() {
         dirtyCount={dirtyPaths.size}
         onPushToGitHub={pushToGitHub}
         onPullFromGitHub={pullFromGitHub}
+        userEmail={session.user.email ?? ''}
+        onSignOut={() => supabase.auth.signOut()}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">

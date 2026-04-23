@@ -24,6 +24,8 @@ export interface ToolbarProps {
   dirtyCount: number;
   onPushToGitHub: () => void;
   onPullFromGitHub: () => void;
+  userEmail: string;
+  onSignOut: () => void;
 }
 
 export default function Toolbar({
@@ -47,6 +49,8 @@ export default function Toolbar({
   dirtyCount,
   onPushToGitHub,
   onPullFromGitHub,
+  userEmail,
+  onSignOut,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -128,6 +132,13 @@ export default function Toolbar({
         )}
         <button onClick={() => setDeployOpen((v) => !v)} disabled={booting}>
           Deploy to Netlify
+        </button>
+        <button
+          className="signout-button"
+          onClick={onSignOut}
+          title={userEmail ? `Signed in as ${userEmail} — click to sign out` : 'Sign out'}
+        >
+          Sign out
         </button>
       </div>
       {ghOpen && (
