@@ -148,6 +148,11 @@ export default function App() {
   const devProcRef = useRef<WebContainerProcess | null>(null);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
+  const agentMode = !!(activeProject?.localPath && agentInfo);
+  const localPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    localPathRef.current = activeProject?.localPath ?? null;
+  }, [activeProject?.localPath]);
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
     setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
@@ -363,37 +368,34 @@ export default function App() {
     devProcRef.current?.kill();
   }, []);
 
+  const loadFromAgent = useCallback(
+    async (project: Project) => {
+      const a = agentRef.current;
+      if (!a || !project.localPath) return;
+      setStatus(`listing ${project.localPath}…`);
+      const { entries } = await a.list(project.localPath, true);
+      const fileEntries: FileEntry[] = entries
+        .filter((e) => !e.isDir)
+        .map((e) => ({ path: e.path, content: '' }));
+      setFiles(fileEntries);
+      setDirtyPaths(new Set());
+      const firstCodeFile = fileEntries.find((f) =>
+        /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
+      );
+      setActivePath(firstCodeFile?.path ?? fileEntries[0]?.path ?? null);
+    },
+    [],
+  );
+
   const pullRef = useCallback(
     async (ref: { owner: string; repo: string; ref?: string }) => {
       const c = containerRef.current;
       if (!c || !session) return;
       try {
         stopDev();
-        setStatus(`fetching ${ref.owner}/${ref.repo}…`);
-        log(
-          `Pulling ${ref.owner}/${ref.repo}${ref.ref ? `@${ref.ref}` : ''}`,
-          'info',
-        );
-        const fetched = await fetchRepoFiles(ref, ghToken || undefined, (d, t) => {
-          setStatus(`fetching ${d}/${t} files…`);
-        });
-        setStatus(`mounting ${fetched.length} files…`);
-        await c.mount(filesToTree(fetched));
-        setFiles(fetched);
-        setDirtyPaths(new Set());
-        const firstCodeFile = fetched.find((f) =>
-          /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
-        );
-        setActivePath(firstCodeFile?.path ?? fetched[0]?.path ?? null);
 
         const repoKey = `${ref.owner}/${ref.repo}`;
-        setCurrentRepoKey(repoKey);
         const branchUsed = ref.ref ?? 'main';
-        setCurrentBranch(branchUsed);
-        const example = fetched.find((f) =>
-          /^\.env\.(example|template|sample)$/i.test(f.path),
-        );
-        setExampleEnv(example ? textOf(example.content) : null);
 
         let project: Project;
         try {
@@ -416,6 +418,54 @@ export default function App() {
           log(`Couldn't save project record: ${(e as Error).message}`, 'err');
           return;
         }
+
+        setCurrentRepoKey(repoKey);
+        setCurrentBranch(branchUsed);
+
+        const useAgent = !!(project.localPath && agentInfo);
+
+        if (useAgent) {
+          log(`Loading from local agent: ${project.localPath}`, 'info');
+          try {
+            await loadFromAgent(project);
+            setStatus('ready (local agent)');
+            notify(
+              'success',
+              `Loaded ${project.owner}/${project.repo}@${branchUsed} from your local machine`,
+            );
+            log(
+              `Local mode active. Files come from ${project.localPath} on your machine. Use Chat to edit with Claude.`,
+              'info',
+            );
+          } catch (e) {
+            log(`Local listing failed: ${(e as Error).message}`, 'err');
+            notify('error', `Local listing failed: ${(e as Error).message}`);
+            setStatus('agent load failed');
+          }
+          return;
+        }
+
+        setStatus(`fetching ${ref.owner}/${ref.repo}…`);
+        log(
+          `Pulling ${ref.owner}/${ref.repo}${ref.ref ? `@${ref.ref}` : ''}`,
+          'info',
+        );
+        const fetched = await fetchRepoFiles(ref, ghToken || undefined, (d, t) => {
+          setStatus(`fetching ${d}/${t} files…`);
+        });
+        setStatus(`mounting ${fetched.length} files…`);
+        await c.mount(filesToTree(fetched));
+        setFiles(fetched);
+        setDirtyPaths(new Set());
+        const firstCodeFile = fetched.find((f) =>
+          /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
+        );
+        setActivePath(firstCodeFile?.path ?? fetched[0]?.path ?? null);
+
+        const example = fetched.find((f) =>
+          /^\.env\.(example|template|sample)$/i.test(f.path),
+        );
+        setExampleEnv(example ? textOf(example.content) : null);
 
         if (project.envContent) {
           await c.fs.writeFile('/.env.local', project.envContent);
@@ -444,7 +494,7 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [ghToken, log, notify, persistSecret, runDev, session, stopDev],
+    [agentInfo, ghToken, loadFromAgent, log, notify, persistSecret, runDev, session, stopDev],
   );
 
   const openUrl = useCallback(
@@ -522,6 +572,47 @@ export default function App() {
     [activeProject, log],
   );
 
+  useEffect(() => {
+    if (!agentMode || !activeProject?.localPath) return;
+    const a = agentRef.current;
+    if (!a) return;
+    const path = activeProject.localPath;
+    const watchId = `proj-${activeProject.id}`;
+    const off = a.watchStart(watchId, path, async (changes) => {
+      try {
+        const { entries } = await a.list(path, true);
+        const fileSet = entries.filter((e) => !e.isDir).map((e) => e.path);
+        setFiles((prev) => {
+          const prevByPath = new Map(prev.map((f) => [f.path, f]));
+          const changedSet = new Set(
+            changes.map((c) => c.replace(/\\/g, '/')),
+          );
+          return fileSet.map((p) => {
+            const existing = prevByPath.get(p);
+            if (!existing) return { path: p, content: '' };
+            if (changedSet.has(p)) return { path: p, content: '' };
+            return existing;
+          });
+        });
+        setDirtyPaths((prev) => {
+          const next = new Set(prev);
+          for (const c of changes) next.delete(c.replace(/\\/g, '/'));
+          return next;
+        });
+        notify(
+          'info',
+          `${changes.length} file${changes.length === 1 ? '' : 's'} changed on disk`,
+        );
+      } catch (e) {
+        log(`Watcher refresh failed: ${(e as Error).message}`, 'err');
+      }
+    });
+    log(`Watching ${path} for changes.`, 'info');
+    return () => {
+      off();
+    };
+  }, [agentMode, activeProject?.id, activeProject?.localPath, log, notify]);
+
   const buildExpo = useCallback(
     (platform: 'ios' | 'android') => {
       const a = agentRef.current;
@@ -597,6 +688,25 @@ export default function App() {
   const activeFileIsBinary =
     !!activeFile && typeof activeFile.content !== 'string';
 
+  useEffect(() => {
+    if (!agentMode || !activeFile || !activeProject?.localPath) return;
+    if (typeof activeFile.content === 'string' && activeFile.content.length > 0) return;
+    if (dirtyPaths.has(activeFile.path)) return;
+    if (/\.(png|jpg|jpeg|gif|webp|ico|woff2?|ttf|otf|eot|pdf|zip|mp[34])$/i.test(activeFile.path)) {
+      return;
+    }
+    const a = agentRef.current;
+    if (!a) return;
+    const path = activeFile.path;
+    a.readFile(`${activeProject.localPath.replace(/\/$/, '')}/${path}`)
+      .then(({ content }) => {
+        setFiles((prev) =>
+          prev.map((f) => (f.path === path ? { ...f, content } : f)),
+        );
+      })
+      .catch((e) => log(`Read failed: ${(e as Error).message}`, 'err'));
+  }, [agentMode, activeFile, activeProject?.localPath, dirtyPaths, log]);
+
   const updateActiveFile = useCallback(
     (value: string) => {
       if (!activeFile || typeof activeFile.content !== 'string') return;
@@ -609,6 +719,18 @@ export default function App() {
         next.add(activeFile.path);
         return next;
       });
+      if (agentMode && activeProject?.localPath) {
+        const a = agentRef.current;
+        if (a) {
+          a.writeFile(
+            `${activeProject.localPath.replace(/\/$/, '')}/${activeFile.path}`,
+            value,
+          ).catch((err) => {
+            log(`Write failed: ${(err as Error).message}`, 'err');
+          });
+        }
+        return;
+      }
       const c = containerRef.current;
       if (c) {
         c.fs.writeFile(`/${activeFile.path}`, value).catch((err) => {
@@ -616,7 +738,7 @@ export default function App() {
         });
       }
     },
-    [activeFile, log],
+    [activeFile, activeProject?.localPath, agentMode, log],
   );
 
   const downloadProject = useCallback(async () => {
@@ -935,7 +1057,10 @@ export default function App() {
         </Panel>
         <Separator className="resize-x" />
         <Panel defaultSize={40} minSize={20}>
-          <Preview url={previewUrl} status={status} />
+          <Preview
+            url={agentMode ? null : previewUrl}
+            status={agentMode ? 'local mode — preview runs on your laptop' : status}
+          />
         </Panel>
       </Group>
     </div>

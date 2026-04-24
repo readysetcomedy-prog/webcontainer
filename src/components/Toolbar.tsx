@@ -89,7 +89,14 @@ export default function Toolbar({
 
   return (
     <div className="toolbar">
-      <div className="brand">GetXsite.com</div>
+      <div className="brand">
+        GetXsite.com
+        {agentInfo && activeProject?.localPath && (
+          <span className="brand-mode" title={`Files on ${agentInfo.host}: ${activeProject.localPath}`}>
+            local mode
+          </span>
+        )}
+      </div>
       <div className="toolbar-actions">
         {connected ? (
           <button
