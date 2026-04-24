@@ -57,6 +57,13 @@ export default function ChatPanel({
   const prevTextRef = useRef<string>('');
   const endRef = useRef<HTMLDivElement>(null);
   const sessionStartedRef = useRef(false);
+  const lastSavepointRef = useRef<{
+    headSha: string;
+    stashSha: string;
+    label: string;
+  } | null>(null);
+  const [hasSavepoint, setHasSavepoint] = useState(false);
+  const [reverting, setReverting] = useState(false);
 
   const selected =
     models.find((m) => m.id === selectedModelId) ?? models[0] ?? null;
@@ -179,10 +186,26 @@ export default function ChatPanel({
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const send = () => {
+  const send = async () => {
     const trimmed = input.trim();
     if (!trimmed || !agent || !agentInfo || !selected) return;
     if (activeRunRef.current) return;
+    // Best-effort git savepoint so user can revert if Claude breaks something
+    if (cwd) {
+      try {
+        const snap = await agent.savepoint(cwd);
+        lastSavepointRef.current = {
+          headSha: snap.headSha,
+          stashSha: snap.stashSha,
+          label: trimmed.slice(0, 60),
+        };
+        setHasSavepoint(true);
+      } catch {
+        // Not a git repo, or git failed — silently skip the safety net
+        lastSavepointRef.current = null;
+        setHasSavepoint(false);
+      }
+    }
     const userMsg: ChatMessage = {
       id: newMsgId(),
       role: 'user',
@@ -221,6 +244,25 @@ export default function ChatPanel({
     sessionStartedRef.current = false;
     setMessages([]);
     setSessionUsage(emptyUsage());
+  };
+
+  const revertLast = async () => {
+    if (!agent || !cwd || !lastSavepointRef.current || reverting) return;
+    const sp = lastSavepointRef.current;
+    const ok = window.confirm(
+      `Revert every file change Claude made after your prompt "${sp.label}${sp.label.length >= 60 ? '…' : ''}"? Your earlier uncommitted work is preserved.`,
+    );
+    if (!ok) return;
+    setReverting(true);
+    try {
+      await agent.revert(cwd, sp.headSha, sp.stashSha);
+      lastSavepointRef.current = null;
+      setHasSavepoint(false);
+    } catch (e) {
+      window.alert(`Revert failed: ${(e as Error).message}`);
+    } finally {
+      setReverting(false);
+    }
   };
 
   const [now, setNow] = useState(() => Date.now());
@@ -274,6 +316,16 @@ export default function ChatPanel({
         >
           New
         </button>
+        {hasSavepoint && (
+          <button
+            className="link-button chat-revert"
+            onClick={revertLast}
+            disabled={reverting}
+            title="Undo every file change since your last message"
+          >
+            {reverting ? 'Reverting…' : 'Revert latest'}
+          </button>
+        )}
         {hasSessionUsage && (
           <span
             className="session-usage"

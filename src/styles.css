@@ -1591,6 +1591,14 @@ button.primary:hover:not(:disabled) {
   text-overflow: ellipsis;
 }
 
+.chat-revert {
+  color: var(--err) !important;
+}
+
+.chat-revert:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
 .session-usage {
   margin-left: auto;
   margin-right: 8px;

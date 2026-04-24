@@ -44,6 +44,14 @@ export type AgentEvent =
   | { type: 'exists_err'; id: string; error: string }
   | { type: 'clone_ok'; id: string; data: { ok: true } }
   | { type: 'clone_err'; id: string; error: string }
+  | {
+      type: 'savepoint_ok';
+      id: string;
+      data: { headSha: string; stashSha: string };
+    }
+  | { type: 'savepoint_err'; id: string; error: string }
+  | { type: 'revert_ok'; id: string; data: { ok: true } }
+  | { type: 'revert_err'; id: string; error: string }
   | { type: 'watch_started'; ok: boolean; error?: string }
   | { type: 'watch_stopped'; ok: boolean }
   | { type: 'fs_change'; id: string; changes: string[] };
@@ -102,7 +110,9 @@ export class AgentClient {
         evt.type === 'read_ok' ||
         evt.type === 'write_ok' ||
         evt.type === 'exists_ok' ||
-        evt.type === 'clone_ok'
+        evt.type === 'clone_ok' ||
+        evt.type === 'savepoint_ok' ||
+        evt.type === 'revert_ok'
       ) {
         const id = (evt as { id: string }).id;
         const p = this.pending.get(id);
@@ -115,7 +125,9 @@ export class AgentClient {
         evt.type === 'read_err' ||
         evt.type === 'write_err' ||
         evt.type === 'exists_err' ||
-        evt.type === 'clone_err'
+        evt.type === 'clone_err' ||
+        evt.type === 'savepoint_err' ||
+        evt.type === 'revert_err'
       ) {
         const id = (evt as { id: string }).id;
         const p = this.pending.get(id);
@@ -256,6 +268,18 @@ export class AgentClient {
 
   clone(url: string, dest: string): Promise<{ ok: true }> {
     return this.rpc('clone', { url, dest });
+  }
+
+  savepoint(path: string): Promise<{ headSha: string; stashSha: string }> {
+    return this.rpc('savepoint', { path });
+  }
+
+  revert(
+    path: string,
+    headSha: string,
+    stashSha: string,
+  ): Promise<{ ok: true }> {
+    return this.rpc('revert', { path, headSha, stashSha });
   }
 
   watchStart(id: string, path: string, onChange: (paths: string[]) => void) {

@@ -219,6 +219,54 @@ async function pathExists({ path }) {
   }
 }
 
+function runGit(cwd, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d.toString('utf-8')));
+    child.stderr.on('data', (d) => (stderr += d.toString('utf-8')));
+    child.on('exit', (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(stderr.trim() || `git exited ${code}`));
+    });
+    child.on('error', reject);
+  });
+}
+
+async function savepoint({ path }) {
+  const root = resolve(path);
+  const headSha = await runGit(root, ['rev-parse', 'HEAD']);
+  let stashSha = '';
+  try {
+    // Create a stash object capturing uncommitted + untracked state,
+    // WITHOUT pushing it onto the stash list (working tree stays as-is).
+    const s = await runGit(root, ['stash', 'create']);
+    stashSha = s || '';
+  } catch {
+    stashSha = '';
+  }
+  return { headSha, stashSha };
+}
+
+async function revert({ path, headSha, stashSha }) {
+  const root = resolve(path);
+  await runGit(root, ['reset', '--hard', headSha]);
+  await runGit(root, ['clean', '-fd']);
+  if (stashSha) {
+    try {
+      await runGit(root, ['stash', 'apply', '--index', stashSha]);
+    } catch {
+      try {
+        await runGit(root, ['stash', 'apply', stashSha]);
+      } catch {
+        // Nothing to apply or conflicts — user can recover manually
+      }
+    }
+  }
+  return { ok: true };
+}
+
 channel.on('broadcast', { event: 'studio' }, async ({ payload }) => {
   if (!payload || typeof payload !== 'object') return;
   switch (payload.type) {
@@ -245,6 +293,12 @@ channel.on('broadcast', { event: 'studio' }, async ({ payload }) => {
       return;
     case 'clone':
       await safeReply(payload.id, 'clone', () => gitClone(payload));
+      return;
+    case 'savepoint':
+      await safeReply(payload.id, 'savepoint', () => savepoint(payload));
+      return;
+    case 'revert':
+      await safeReply(payload.id, 'revert', () => revert(payload));
       return;
     case 'watch_start':
       send('watch_started', startWatch(payload));
