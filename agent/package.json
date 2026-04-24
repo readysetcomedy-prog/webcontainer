@@ -23,10 +23,10 @@
   "author": "GetXsite.com",
   "type": "module",
   "bin": {
-    "getxsite-agent": "bin/agent.mjs"
+    "getxsite-agent": "agent.mjs"
   },
   "files": [
-    "bin",
+    "agent.mjs",
     "README.md"
   ],
   "engines": {
