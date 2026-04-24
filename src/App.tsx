@@ -32,6 +32,7 @@ import Toasts from './components/Toasts';
 import type { Toast } from './components/Toasts';
 import type { Session } from '@supabase/supabase-js';
 import LoginGate from './components/LoginGate';
+import LandingPage from './components/LandingPage';
 
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
@@ -735,6 +736,15 @@ export default function App() {
     },
     [activeProject, log],
   );
+
+  const isAppRoute =
+    typeof window !== 'undefined' &&
+    (window.location.pathname === '/app' ||
+      window.location.pathname.startsWith('/app/'));
+
+  if (!isAppRoute) {
+    return <LandingPage />;
+  }
 
   if (authChecking) {
     return <div className="login-shell"><div className="login-card">Loading…</div></div>;

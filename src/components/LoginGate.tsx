@@ -41,6 +41,9 @@ export default function LoginGate() {
           password,
         });
         if (error) throw error;
+        if (window.location.pathname !== '/app') {
+          window.location.assign('/app');
+        }
       }
     } catch (err) {
       setError((err as Error).message);

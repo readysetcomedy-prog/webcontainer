@@ -518,6 +518,360 @@ button.primary:hover:not(:disabled) {
   color: var(--err);
 }
 
+.landing {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.landing a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.landing a:hover {
+  text-decoration: underline;
+}
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.landing-brand {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.2px;
+}
+
+.landing-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 14px;
+}
+
+.landing-nav-links a {
+  color: var(--fg-dim);
+}
+
+.landing-nav-links a:hover {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.landing-nav-cta {
+  background: var(--accent);
+  color: #0b1020 !important;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.landing-nav-cta:hover {
+  filter: brightness(1.1);
+  text-decoration: none !important;
+}
+
+.landing-hero {
+  text-align: center;
+  padding: 96px 24px 80px;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.landing-hero h1 {
+  font-size: 52px;
+  line-height: 1.1;
+  font-weight: 700;
+  margin: 0 0 24px;
+  letter-spacing: -0.02em;
+}
+
+.landing-accent {
+  color: var(--accent);
+}
+
+.landing-subhead {
+  font-size: 19px;
+  color: var(--fg-dim);
+  line-height: 1.55;
+  max-width: 700px;
+  margin: 0 auto 36px;
+}
+
+.landing-hero-ctas {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.landing-cta {
+  display: inline-block;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 12px 22px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.landing-cta:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+  text-decoration: none !important;
+}
+
+.landing-cta.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1020;
+  font-weight: 700;
+}
+
+.landing-cta.primary:hover {
+  filter: brightness(1.1);
+}
+
+.landing-cta.block {
+  display: block;
+  text-align: center;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.landing-hero-fineprint {
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+
+.landing-section {
+  padding: 80px 32px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.landing-section-muted {
+  background: var(--bg-2);
+  max-width: none;
+}
+
+.landing-section-muted > * {
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.landing-section h2 {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+
+.landing-section-sub {
+  color: var(--fg-dim);
+  font-size: 16px;
+  margin: 0 0 36px;
+}
+
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.landing-card {
+  position: relative;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 22px;
+}
+
+.landing-card-tag {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(110, 168, 255, 0.15);
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.landing-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.landing-card-desc {
+  color: var(--fg-dim);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.landing-pricing {
+  display: flex;
+  justify-content: center;
+}
+
+.landing-price-card {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.landing-price-name {
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 12px;
+}
+
+.landing-price-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+
+.landing-price-num {
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.landing-price-per {
+  font-size: 18px;
+  color: var(--fg-dim);
+}
+
+.landing-price-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.landing-price-list li {
+  font-size: 14px;
+  color: var(--fg);
+  padding-left: 22px;
+  position: relative;
+}
+
+.landing-price-list li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.landing-price-fine {
+  margin-top: 16px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.landing-faq {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.landing-faq details {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.landing-faq summary {
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+
+.landing-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.landing-faq summary::before {
+  content: '+ ';
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.landing-faq details[open] summary::before {
+  content: '− ';
+}
+
+.landing-faq p {
+  margin: 12px 0 0;
+  color: var(--fg-dim);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.landing-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 24px 32px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 13px;
+  background: var(--bg-2);
+}
+
+.landing-footer-links {
+  display: flex;
+  gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .landing-hero h1 {
+    font-size: 36px;
+  }
+  .landing-subhead {
+    font-size: 16px;
+  }
+  .landing-section {
+    padding: 56px 20px;
+  }
+  .landing-nav {
+    padding: 14px 20px;
+  }
+  .landing-nav-links {
+    gap: 14px;
+  }
+}
+
 .toasts {
   position: fixed;
   top: 56px;
