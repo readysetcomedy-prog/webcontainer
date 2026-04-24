@@ -7,6 +7,7 @@ export interface Project {
   envContent: string;
   netlifySiteId?: string;
   localPath?: string;
+  pathsByMachine: Record<string, string>;
   updatedAt: number;
 }
 

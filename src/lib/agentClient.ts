@@ -4,6 +4,8 @@ import { supabase } from './supabase';
 export interface AgentInfo {
   host: string;
   version: string;
+  home?: string;
+  platform?: string;
   lastSeen: number;
 }
 
@@ -21,7 +23,14 @@ export interface DirEntry {
 }
 
 export type AgentEvent =
-  | { type: 'hello'; host: string; version: string; ts: number }
+  | {
+      type: 'hello';
+      host: string;
+      home?: string;
+      platform?: string;
+      version: string;
+      ts: number;
+    }
   | { type: 'pong'; ts: number }
   | { type: 'output'; id: string; stream: 'stdout' | 'stderr'; data: string }
   | { type: 'exit'; id: string; code: number; error?: string }
@@ -79,6 +88,9 @@ export class AgentClient {
           host: 'host' in evt ? evt.host : this.agentInfo?.host ?? '?',
           version:
             'version' in evt ? evt.version : this.agentInfo?.version ?? '?',
+          home: 'home' in evt ? evt.home : this.agentInfo?.home,
+          platform:
+            'platform' in evt ? evt.platform : this.agentInfo?.platform,
           lastSeen: Date.now(),
         };
         this.emitAgentInfo();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GhUser } from '../lib/github';
 import GitHubPanel from './GitHubPanel';
 import EnvPanel from './EnvPanel';
@@ -91,6 +91,22 @@ export default function Toolbar({
   const [envOpen, setEnvOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const autoOpenedKeyRef = useRef<string>('');
+  const hostname = agentInfo?.host;
+  const hasPathForThisMachine = !!(
+    activeProject &&
+    hostname &&
+    (activeProject.pathsByMachine?.[hostname] || activeProject.localPath)
+  );
+  useEffect(() => {
+    if (!hostname || !activeProject) return;
+    const key = `${activeProject.id}@${hostname}`;
+    if (autoOpenedKeyRef.current === key) return;
+    if (!hasPathForThisMachine) {
+      autoOpenedKeyRef.current = key;
+      setAgentOpen(true);
+    }
+  }, [hostname, activeProject?.id, hasPathForThisMachine, activeProject]);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [siteId, setSiteId] = useState(defaultNetlifySiteId);
 

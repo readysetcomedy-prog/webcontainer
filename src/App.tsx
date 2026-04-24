@@ -215,11 +215,17 @@ export default function App() {
   const devProcRef = useRef<WebContainerProcess | null>(null);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
-  const agentMode = !!(activeProject?.localPath && agentInfo);
+  const currentLocalPath: string | null =
+    activeProject && agentInfo
+      ? activeProject.pathsByMachine?.[agentInfo.host] ??
+        activeProject.localPath ??
+        null
+      : null;
+  const agentMode = !!(currentLocalPath && agentInfo);
   const localPathRef = useRef<string | null>(null);
   useEffect(() => {
-    localPathRef.current = activeProject?.localPath ?? null;
-  }, [activeProject?.localPath]);
+    localPathRef.current = currentLocalPath;
+  }, [currentLocalPath]);
 
   const log = useCallback((text: string, kind: LogLine['kind'] = 'out') => {
     setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
@@ -448,7 +454,8 @@ export default function App() {
   const runLocalDev = useCallback(async () => {
     const a = agentRef.current;
     const project = activeProject;
-    if (!a || !project?.localPath) {
+    const root = currentLocalPath;
+    if (!a || !project || !root) {
       log('Local Run needs the agent + a project local path.', 'err');
       return;
     }
@@ -456,7 +463,6 @@ export default function App() {
     setLocalPreviewUrl(null);
     setRunning(true);
 
-    const root = project.localPath.replace(/\/$/, '');
     let scripts: Record<string, string> = {};
     try {
       const { content } = await a.readFile(`${root}/package.json`);
@@ -531,14 +537,14 @@ export default function App() {
       }
     });
     a.exec({ id, command: 'npm', args: ['run', startScript], cwd: root });
-  }, [activeProject, localPreviewUrl, log, notify, stopLocalDev]);
+  }, [activeProject, currentLocalPath, localPreviewUrl, log, notify, stopLocalDev]);
 
   const loadFromAgent = useCallback(
-    async (project: Project) => {
+    async (path: string) => {
       const a = agentRef.current;
-      if (!a || !project.localPath) return;
-      setStatus(`listing ${project.localPath}…`);
-      const { entries } = await a.list(project.localPath, true);
+      if (!a || !path) return;
+      setStatus(`listing ${path}…`);
+      const { entries } = await a.list(path, true);
       const fileEntries: FileEntry[] = entries
         .filter((e) => !e.isDir)
         .map((e) => ({ path: e.path, content: '' }));
@@ -589,19 +595,22 @@ export default function App() {
         setCurrentRepoKey(repoKey);
         setCurrentBranch(branchUsed);
 
-        const useAgent = !!(project.localPath && agentInfo);
+        const pathForThisMachine = agentInfo
+          ? project.pathsByMachine?.[agentInfo.host] ?? project.localPath ?? null
+          : null;
+        const useAgent = !!(pathForThisMachine && agentInfo);
 
         if (useAgent) {
-          log(`Loading from local agent: ${project.localPath}`, 'info');
+          log(`Loading from local agent: ${pathForThisMachine}`, 'info');
           try {
-            await loadFromAgent(project);
+            await loadFromAgent(pathForThisMachine!);
             setStatus('ready (local agent)');
             notify(
               'success',
               `Loaded ${project.owner}/${project.repo}@${branchUsed} from your local machine`,
             );
             log(
-              `Local mode active. Files come from ${project.localPath} on your machine. Use Chat to edit with Claude.`,
+              `Local mode active. Files come from ${pathForThisMachine} on your machine. Use Chat to edit with Claude.`,
               'info',
             );
           } catch (e) {
@@ -725,25 +734,38 @@ export default function App() {
   const setProjectLocalPath = useCallback(
     async (path: string) => {
       if (!activeProject) return;
+      const hostname = agentInfo?.host;
       try {
-        const saved = await updateProjectFields(activeProject.id, { localPath: path });
+        const patch: Parameters<typeof updateProjectFields>[1] = {};
+        if (hostname) {
+          const nextMap = { ...activeProject.pathsByMachine };
+          if (path) nextMap[hostname] = path;
+          else delete nextMap[hostname];
+          patch.pathsByMachine = nextMap;
+        } else {
+          patch.localPath = path;
+        }
+        const saved = await updateProjectFields(activeProject.id, patch);
         setProjects((prev) =>
           prev.map((p) => (p.id === saved.id ? saved : p)),
         );
-        log(`Local path saved for "${activeProject.name}": ${path}`, 'info');
+        log(
+          `Local path saved for "${activeProject.name}"${hostname ? ` on ${hostname}` : ''}: ${path}`,
+          'info',
+        );
       } catch (e) {
         log(`Save local path failed: ${(e as Error).message}`, 'err');
         throw e;
       }
     },
-    [activeProject, log],
+    [activeProject, agentInfo, log],
   );
 
   useEffect(() => {
-    if (!agentMode || !activeProject?.localPath) return;
+    if (!agentMode || !currentLocalPath || !activeProject) return;
     const a = agentRef.current;
     if (!a) return;
-    const path = activeProject.localPath;
+    const path = currentLocalPath;
     const watchId = `proj-${activeProject.id}`;
     const off = a.watchStart(watchId, path, async (changes) => {
       try {
@@ -778,12 +800,12 @@ export default function App() {
     return () => {
       off();
     };
-  }, [agentMode, activeProject?.id, activeProject?.localPath, log, notify]);
+  }, [agentMode, activeProject, currentLocalPath, log, notify]);
 
   const buildExpo = useCallback(
     (platform: 'ios' | 'android') => {
       const a = agentRef.current;
-      if (!a || !activeProject?.localPath) {
+      if (!a || !currentLocalPath) {
         notify('error', 'Build needs the local agent + project local path set.');
         return;
       }
@@ -809,10 +831,10 @@ export default function App() {
         id,
         command: 'eas',
         args: ['build', '--platform', platform, '--non-interactive'],
-        cwd: activeProject.localPath,
+        cwd: currentLocalPath,
       });
     },
-    [activeProject, log, notify],
+    [currentLocalPath, log, notify],
   );
 
   const deleteProject = useCallback(
@@ -856,7 +878,7 @@ export default function App() {
     !!activeFile && typeof activeFile.content !== 'string';
 
   useEffect(() => {
-    if (!agentMode || !activeFile || !activeProject?.localPath) return;
+    if (!agentMode || !activeFile || !currentLocalPath) return;
     if (typeof activeFile.content === 'string' && activeFile.content.length > 0) return;
     if (dirtyPaths.has(activeFile.path)) return;
     if (/\.(png|jpg|jpeg|gif|webp|ico|woff2?|ttf|otf|eot|pdf|zip|mp[34])$/i.test(activeFile.path)) {
@@ -865,14 +887,14 @@ export default function App() {
     const a = agentRef.current;
     if (!a) return;
     const path = activeFile.path;
-    a.readFile(`${activeProject.localPath.replace(/\/$/, '')}/${path}`)
+    a.readFile(`${currentLocalPath.replace(/\/$/, '')}/${path}`)
       .then(({ content }) => {
         setFiles((prev) =>
           prev.map((f) => (f.path === path ? { ...f, content } : f)),
         );
       })
       .catch((e) => log(`Read failed: ${(e as Error).message}`, 'err'));
-  }, [agentMode, activeFile, activeProject?.localPath, dirtyPaths, log]);
+  }, [agentMode, activeFile, currentLocalPath, dirtyPaths, log]);
 
   const updateActiveFile = useCallback(
     (value: string) => {
@@ -886,11 +908,11 @@ export default function App() {
         next.add(activeFile.path);
         return next;
       });
-      if (agentMode && activeProject?.localPath) {
+      if (agentMode && currentLocalPath) {
         const a = agentRef.current;
         if (a) {
           a.writeFile(
-            `${activeProject.localPath.replace(/\/$/, '')}/${activeFile.path}`,
+            `${currentLocalPath.replace(/\/$/, '')}/${activeFile.path}`,
             value,
           ).catch((err) => {
             log(`Write failed: ${(err as Error).message}`, 'err');
@@ -905,7 +927,7 @@ export default function App() {
         });
       }
     },
-    [activeFile, activeProject?.localPath, agentMode, log],
+    [activeFile, currentLocalPath, agentMode, log],
   );
 
   const downloadProject = useCallback(async () => {
@@ -1283,7 +1305,7 @@ export default function App() {
                       agent={agentRef.current}
                       agentInfo={agentInfo}
                       userId={session.user.id}
-                      cwd={activeProject?.localPath}
+                      cwd={currentLocalPath ?? undefined}
                       models={models}
                       selectedModelId={selectedModelId}
                       onSelectModel={selectModel}

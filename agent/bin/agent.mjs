@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createClient } from '@supabase/supabase-js';
 import { spawn } from 'node:child_process';
-import { hostname } from 'node:os';
+import { hostname, homedir, platform } from 'node:os';
 import { argv, env, exit } from 'node:process';
 import { promises as fs, watch as fsWatch } from 'node:fs';
 import { join, resolve, relative, isAbsolute } from 'node:path';
@@ -35,7 +35,9 @@ const channel = supabase.channel(channelName, {
 const procs = new Map();
 const watchers = new Map();
 const host = hostname();
-const version = '0.2.0';
+const home = homedir();
+const plat = platform();
+const version = '0.3.0';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -59,7 +61,7 @@ function send(type, payload) {
 }
 
 function announce() {
-  send('hello', { host, version, ts: Date.now() });
+  send('hello', { host, home, platform: plat, version, ts: Date.now() });
 }
 
 async function safeReply(id, op, fn) {

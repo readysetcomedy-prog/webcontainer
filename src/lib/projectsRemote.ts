@@ -11,6 +11,7 @@ interface ProjectRow {
   env_content: string;
   netlify_site_id: string | null;
   local_path: string | null;
+  paths_by_machine: Record<string, string> | null;
   updated_at: string;
 }
 
@@ -24,6 +25,7 @@ function rowToProject(r: ProjectRow): Project {
     envContent: r.env_content,
     netlifySiteId: r.netlify_site_id ?? undefined,
     localPath: r.local_path ?? undefined,
+    pathsByMachine: r.paths_by_machine ?? {},
     updatedAt: new Date(r.updated_at).getTime(),
   };
 }
@@ -90,7 +92,10 @@ export async function findOrCreateProject(
 export async function updateProjectFields(
   id: string,
   patch: Partial<
-    Pick<Project, 'name' | 'branch' | 'envContent' | 'netlifySiteId' | 'localPath'>
+    Pick<
+      Project,
+      'name' | 'branch' | 'envContent' | 'netlifySiteId' | 'localPath' | 'pathsByMachine'
+    >
   >,
 ): Promise<Project> {
   const payload: Record<string, unknown> = {
@@ -103,6 +108,8 @@ export async function updateProjectFields(
     payload.netlify_site_id = patch.netlifySiteId || null;
   if (patch.localPath !== undefined)
     payload.local_path = patch.localPath || null;
+  if (patch.pathsByMachine !== undefined)
+    payload.paths_by_machine = patch.pathsByMachine;
   const { data, error } = await supabase
     .from('projects')
     .update(payload)

@@ -10,6 +10,13 @@ export interface AgentPanelProps {
   onSetLocalPath: (path: string) => Promise<void>;
 }
 
+function defaultPathFor(agentInfo: AgentInfo, project: Project): string {
+  const isWin = (agentInfo.platform ?? '').toLowerCase() === 'win32';
+  const sep = isWin ? '\\' : '/';
+  const home = agentInfo.home ?? (isWin ? 'C:\\Users' : '/Users/you');
+  return [home, 'getxsite', project.owner, project.repo].join(sep);
+}
+
 export default function AgentPanel({
   userId,
   agentInfo,
@@ -18,16 +25,24 @@ export default function AgentPanel({
   onSetLocalPath,
 }: AgentPanelProps) {
   const [copied, setCopied] = useState<'cmd' | 'id' | null>(null);
-  const [localPath, setLocalPath] = useState(activeProject?.localPath ?? '');
+  const machineKey = agentInfo?.host ?? null;
+  const storedForThisMachine = machineKey
+    ? activeProject?.pathsByMachine?.[machineKey]
+    : undefined;
+  const legacyPath = activeProject?.localPath;
+  const initialPath =
+    storedForThisMachine ??
+    (activeProject && agentInfo ? defaultPathFor(agentInfo, activeProject) : legacyPath ?? '');
+  const [localPath, setLocalPath] = useState<string>(initialPath ?? '');
   const [savingPath, setSavingPath] = useState(false);
   const [pathInfo, setPathInfo] = useState<string | null>(null);
   const [pathErr, setPathErr] = useState<string | null>(null);
 
   useEffect(() => {
-    setLocalPath(activeProject?.localPath ?? '');
+    setLocalPath(initialPath ?? '');
     setPathInfo(null);
     setPathErr(null);
-  }, [activeProject?.id]);
+  }, [activeProject?.id, machineKey, initialPath]);
 
   const cmd = `npx -y @getxsite/agent --user-id ${userId}`;
 
@@ -71,6 +86,10 @@ export default function AgentPanel({
     }
   };
 
+  const knownMachines = activeProject
+    ? Object.entries(activeProject.pathsByMachine ?? {})
+    : [];
+
   return (
     <div className="popover agent-panel">
       <div className="popover-title">Local agent</div>
@@ -87,7 +106,10 @@ export default function AgentPanel({
           {agentInfo ? (
             <>
               <b>{agentInfo.host}</b> connected ·{' '}
-              <span className="hint-text">v{agentInfo.version}</span>
+              <span className="hint-text">
+                v{agentInfo.version}
+                {agentInfo.platform ? ` · ${agentInfo.platform}` : ''}
+              </span>
             </>
           ) : (
             <>Not connected</>
@@ -97,7 +119,7 @@ export default function AgentPanel({
 
       <div>
         <div className="hint-text" style={{ marginBottom: 4 }}>
-          Run this on your laptop (one-time):
+          Run this on your laptop (works on Windows, macOS, Linux):
         </div>
         <div className="agent-cmd">
           <code>{cmd}</code>
@@ -137,13 +159,21 @@ export default function AgentPanel({
       ) : (
         <>
           <div className="hint-text">
-            Where does <b>{activeProject.owner}/{activeProject.repo}</b> live on
-            your laptop? Chat, builds, and quick actions run in this folder.
+            Where does <b>{activeProject.owner}/{activeProject.repo}</b> live on{' '}
+            <b>{machineKey ?? 'your laptop'}</b>? Chat, builds, and quick
+            actions run in this folder.
           </div>
+          {!storedForThisMachine && machineKey && legacyPath && (
+            <div className="login-info" style={{ fontSize: 12 }}>
+              This project was set up on another machine with path{' '}
+              <code>{legacyPath}</code>. Set the path for <b>{machineKey}</b>{' '}
+              below.
+            </div>
+          )}
           <input
             value={localPath}
             onChange={(e) => setLocalPath(e.target.value)}
-            placeholder={`~/Projects/${activeProject.repo}`}
+            placeholder={`~/getxsite/${activeProject.repo}`}
             spellCheck={false}
             className="agent-path-input"
           />
@@ -165,6 +195,29 @@ export default function AgentPanel({
               Clone here &amp; save
             </button>
           </div>
+
+          {knownMachines.length > 0 && (
+            <details className="machines-list">
+              <summary>
+                Known paths on other machines ({knownMachines.length})
+              </summary>
+              <div className="machines-body">
+                {knownMachines.map(([host, path]) => (
+                  <div key={host} className="machine-row">
+                    <div className="machine-host">
+                      {host}
+                      {host === machineKey && (
+                        <span className="hint-text"> (this one)</span>
+                      )}
+                    </div>
+                    <div className="machine-path">
+                      <code>{path}</code>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </>
       )}
     </div>

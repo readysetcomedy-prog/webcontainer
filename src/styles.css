@@ -1724,6 +1724,44 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+.machines-list {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.machines-list summary {
+  cursor: pointer;
+  color: var(--fg-dim);
+}
+
+.machines-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.machine-row {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.machine-host {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.machine-path code {
+  font-size: 11px;
+  color: var(--fg-dim);
+  word-break: break-all;
+}
+
 .actions-panel {
   width: 440px;
 }
