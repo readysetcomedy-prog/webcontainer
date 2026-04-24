@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import type { ModelPreset } from '../lib/userSecrets';
 
 export interface SettingsModalProps {
   email: string;
@@ -7,8 +8,12 @@ export interface SettingsModalProps {
   ghToken: string;
   netlifyToken: string;
   projectCount: number;
+  models: ModelPreset[];
   onResetGhToken: () => void;
   onResetNetlifyToken: () => void;
+  onEditModel: (preset: ModelPreset) => void;
+  onDeleteModel: (id: string) => void;
+  onAddModel: () => void;
   onSignOut: () => void;
   onClose: () => void;
 }
@@ -25,8 +30,12 @@ export default function SettingsModal({
   ghToken,
   netlifyToken,
   projectCount,
+  models,
   onResetGhToken,
   onResetNetlifyToken,
+  onEditModel,
+  onDeleteModel,
+  onAddModel,
   onSignOut,
   onClose,
 }: SettingsModalProps) {
@@ -121,6 +130,42 @@ export default function SettingsModal({
           <div className="hint-text">
             Tokens are stored encrypted-at-rest in your private Supabase row.
             Only you can read them.
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>Chat models</h3>
+          <div className="hint-text" style={{ marginBottom: 10 }}>
+            CLIs + arguments used by the Chat panel. Your subscription pays
+            for LLM usage — we never see your prompts or responses.
+          </div>
+          {models.length === 0 && (
+            <div className="hint-text" style={{ marginBottom: 10 }}>
+              No models defined. Add one to enable the chat panel.
+            </div>
+          )}
+          {models.map((m) => (
+            <div key={m.id} className="settings-row models-row">
+              <div className="settings-val">
+                <div className="model-item-label">{m.label}</div>
+                <div className="model-item-cmd">
+                  <code>{m.cli} {m.args.join(' ')}</code>
+                </div>
+              </div>
+              <div className="settings-actions">
+                <button onClick={() => onEditModel(m)}>Edit</button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Delete model "${m.label}"?`)) onDeleteModel(m.id);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+          <div className="settings-actions" style={{ marginTop: 8 }}>
+            <button className="primary" onClick={onAddModel}>+ Add model</button>
           </div>
         </section>
 

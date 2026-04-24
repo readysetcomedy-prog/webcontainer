@@ -36,6 +36,8 @@ import LandingPage from './components/LandingPage';
 import ChatPanel from './components/ChatPanel';
 import Onboarding from './components/Onboarding';
 import SettingsModal from './components/SettingsModal';
+import ModelFormModal from './components/ModelFormModal';
+import type { ModelPreset } from './lib/userSecrets';
 import { AgentClient, type AgentInfo } from './lib/agentClient';
 
 const textOf = (c: string | Uint8Array): string =>
@@ -69,6 +71,13 @@ export default function App() {
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => localStorage.getItem('onboardingDismissed') === '1',
   );
+  const [models, setModels] = useState<ModelPreset[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(() =>
+    localStorage.getItem('selectedModelId'),
+  );
+  const [modelModal, setModelModal] = useState<
+    { kind: 'new' } | { kind: 'edit'; preset: ModelPreset } | null
+  >(null);
 
   useEffect(() => {
     let mounted = true;
@@ -124,17 +133,66 @@ export default function App() {
         setProjects(projs);
         setGhTokenState(secrets.githubToken);
         setNetlifyTokenState(secrets.netlifyToken);
+        setModels(secrets.models);
         if (
           secrets.lastActiveProjectId &&
           projs.some((p) => p.id === secrets.lastActiveProjectId)
         ) {
           setActiveProjectIdState(secrets.lastActiveProjectId);
         }
+        const savedModel = localStorage.getItem('selectedModelId');
+        if (!savedModel || !secrets.models.some((m) => m.id === savedModel)) {
+          setSelectedModelId(secrets.models[0]?.id ?? null);
+        }
       } catch (e) {
         console.error('Failed to load session data', e);
       }
     })();
   }, [session]);
+
+  const saveModelsRemote = useCallback(
+    (next: ModelPreset[]) => {
+      if (!session) return;
+      saveUserSecrets(session.user.id, { models: next }).catch((e) =>
+        console.error('save models failed', e),
+      );
+    },
+    [session],
+  );
+
+  const upsertModel = useCallback(
+    (preset: ModelPreset) => {
+      setModels((prev) => {
+        const idx = prev.findIndex((m) => m.id === preset.id);
+        const next = idx >= 0 ? prev.map((m) => (m.id === preset.id ? preset : m)) : [...prev, preset];
+        saveModelsRemote(next);
+        return next;
+      });
+      setSelectedModelId(preset.id);
+      localStorage.setItem('selectedModelId', preset.id);
+    },
+    [saveModelsRemote],
+  );
+
+  const deleteModel = useCallback(
+    (id: string) => {
+      setModels((prev) => {
+        const next = prev.filter((m) => m.id !== id);
+        saveModelsRemote(next);
+        return next;
+      });
+      if (selectedModelId === id) {
+        setSelectedModelId(null);
+        localStorage.removeItem('selectedModelId');
+      }
+    },
+    [saveModelsRemote, selectedModelId],
+  );
+
+  const selectModel = useCallback((id: string) => {
+    setSelectedModelId(id);
+    localStorage.setItem('selectedModelId', id);
+  }, []);
 
   const persistSecret = useCallback(
     (patch: {
@@ -1076,13 +1134,27 @@ export default function App() {
           ghToken={ghToken}
           netlifyToken={netlifyToken}
           projectCount={projects.length}
+          models={models}
           onResetGhToken={disconnectGitHub}
           onResetNetlifyToken={() => setNetlifyToken('')}
+          onEditModel={(preset) => setModelModal({ kind: 'edit', preset })}
+          onDeleteModel={deleteModel}
+          onAddModel={() => setModelModal({ kind: 'new' })}
           onSignOut={() => {
             supabase.auth.signOut();
             setSettingsOpen(false);
           }}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {modelModal && (
+        <ModelFormModal
+          initial={modelModal.kind === 'edit' ? modelModal.preset : undefined}
+          onSave={(p) => {
+            upsertModel(p);
+            setModelModal(null);
+          }}
+          onClose={() => setModelModal(null)}
         />
       )}
     <div className="app">
@@ -1190,6 +1262,11 @@ export default function App() {
                       agentInfo={agentInfo}
                       userId={session.user.id}
                       cwd={activeProject?.localPath}
+                      models={models}
+                      selectedModelId={selectedModelId}
+                      onSelectModel={selectModel}
+                      onAddModel={() => setModelModal({ kind: 'new' })}
+                      onManageModels={() => setSettingsOpen(true)}
                     />
                   )}
                 </div>
