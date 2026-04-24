@@ -232,6 +232,7 @@ export default function ChatPanel({
     sessionStartedRef.current = true;
     parserRef.current = tracking ? makeParser() : null;
     prevTextRef.current = '';
+    setManualHeight(null);
     agent.exec({ id: runId, command: selected.cli, args: runArgs, cwd });
   };
 
@@ -267,13 +268,37 @@ export default function ChatPanel({
 
   const [now, setNow] = useState(() => Date.now());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [manualHeight, setManualHeight] = useState<number | null>(null);
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
+    if (manualHeight !== null) {
+      ta.style.height = `${manualHeight}px`;
+      return;
+    }
     ta.style.height = 'auto';
     const natural = ta.scrollHeight;
-    ta.style.height = Math.min(Math.max(natural, 44), 400) + 'px';
-  }, [input]);
+    ta.style.height = Math.min(Math.max(natural, 44), 600) + 'px';
+  }, [input, manualHeight]);
+
+  const onResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const startH = ta.offsetHeight;
+    const onMove = (ev: MouseEvent) => {
+      const delta = startY - ev.clientY; // dragging up = positive
+      const next = Math.min(Math.max(startH + delta, 44), 600);
+      setManualHeight(next);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
   useEffect(() => {
     const hasPending = messages.some((m) => m.pending);
     if (!hasPending) return;
@@ -431,6 +456,11 @@ export default function ChatPanel({
         })}
         <div ref={endRef} />
       </div>
+      <div
+        className="chat-input-resize"
+        onMouseDown={onResizeStart}
+        title="Drag to resize — or just type and it grows on its own"
+      />
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}

@@ -1630,11 +1630,22 @@ button.primary:hover:not(:disabled) {
   gap: 4px;
 }
 
+.chat-input-resize {
+  height: 6px;
+  background: var(--border);
+  cursor: ns-resize;
+  transition: background 120ms;
+  flex: 0 0 auto;
+}
+
+.chat-input-resize:hover {
+  background: var(--accent);
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;
   padding: 8px;
-  border-top: 1px solid var(--border);
   background: var(--bg-2);
   align-items: stretch;
 }
