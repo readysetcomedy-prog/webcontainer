@@ -1566,6 +1566,31 @@ button.primary:hover:not(:disabled) {
   line-height: 1.4;
 }
 
+.chat-msg-timer {
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.chat-msg-activity {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-msg-activity-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .session-usage {
   margin-left: auto;
   margin-right: 8px;

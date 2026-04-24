@@ -19,6 +19,8 @@ interface ChatMessage {
   text: string;
   pending?: boolean;
   usage?: Usage;
+  activity?: string[];
+  startedAt?: number;
 }
 
 const newMsgId = () =>
@@ -84,7 +86,7 @@ export default function ChatPanel({
             });
             return;
           }
-          const { textAppend, usage, errored } = feedClaudeStream(
+          const { textAppend, activity, usage, errored } = feedClaudeStream(
             parser,
             evt.data,
             prevTextRef.current,
@@ -97,6 +99,16 @@ export default function ChatPanel({
               return [
                 ...prev.slice(0, -1),
                 { ...last, text: last.text + textAppend },
+              ];
+            });
+          }
+          if (activity && activity.length) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== 'assistant' || !last.pending) return prev;
+              return [
+                ...prev.slice(0, -1),
+                { ...last, activity: [...(last.activity ?? []), ...activity] },
               ];
             });
           }
@@ -181,6 +193,7 @@ export default function ChatPanel({
       role: 'assistant',
       text: '',
       pending: true,
+      startedAt: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg, aiMsg]);
     setInput('');
@@ -209,6 +222,14 @@ export default function ChatPanel({
     setMessages([]);
     setSessionUsage(emptyUsage());
   };
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const hasPending = messages.some((m) => m.pending);
+    if (!hasPending) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [messages]);
 
   const connected = !!agentInfo;
   const hasSessionUsage =
@@ -295,31 +316,59 @@ export default function ChatPanel({
             )}
           </div>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
-            <div className="chat-msg-role">
-              {m.role === 'user' ? 'You' : selected?.label ?? 'Assistant'}
-            </div>
-            <div className="chat-msg-text">{m.text || (m.pending ? '…' : '')}</div>
-            {m.usage && (
-              <div
-                className="chat-msg-usage"
-                title="Cost shown is what this prompt would cost on the Claude API. Your subscription is flat-rate, so this is what you're saving."
-              >
-                {formatNum(m.usage.inputTokens)} in
-                {m.usage.cacheReadTokens > 0 && (
-                  <> · {formatNum(m.usage.cacheReadTokens)} cached</>
-                )}
-                {' · '}
-                {formatNum(m.usage.outputTokens)} out · saved{' '}
-                {formatCost(m.usage.costUsd)}
-                {m.usage.durationMs > 0 && (
-                  <> · {(m.usage.durationMs / 1000).toFixed(1)}s</>
+        {messages.map((m) => {
+          const elapsedSec =
+            m.pending && m.startedAt ? Math.floor((now - m.startedAt) / 1000) : 0;
+          return (
+            <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
+              <div className="chat-msg-role">
+                {m.role === 'user' ? 'You' : selected?.label ?? 'Assistant'}
+                {m.pending && m.startedAt && (
+                  <span className="chat-msg-timer">
+                    {' '}
+                    · {elapsedSec < 60
+                      ? `${elapsedSec}s`
+                      : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`}
+                  </span>
                 )}
               </div>
-            )}
-          </div>
-        ))}
+              {m.activity && m.activity.length > 0 && (
+                <div className="chat-msg-activity">
+                  {m.activity.slice(-8).map((line, i) => (
+                    <div key={i} className="chat-msg-activity-line">
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="chat-msg-text">
+                {m.text ||
+                  (m.pending
+                    ? m.activity && m.activity.length
+                      ? '…'
+                      : 'Thinking…'
+                    : '')}
+              </div>
+              {m.usage && (
+                <div
+                  className="chat-msg-usage"
+                  title="Cost shown is what this prompt would cost on the Claude API. Your subscription is flat-rate, so this is what you're saving."
+                >
+                  {formatNum(m.usage.inputTokens)} in
+                  {m.usage.cacheReadTokens > 0 && (
+                    <> · {formatNum(m.usage.cacheReadTokens)} cached</>
+                  )}
+                  {' · '}
+                  {formatNum(m.usage.outputTokens)} out · saved{' '}
+                  {formatCost(m.usage.costUsd)}
+                  {m.usage.durationMs > 0 && (
+                    <> · {(m.usage.durationMs / 1000).toFixed(1)}s</>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div ref={endRef} />
       </div>
       <div className="chat-input-row">

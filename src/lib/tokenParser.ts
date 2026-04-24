@@ -82,6 +82,7 @@ export function makeParser(): ParserState {
 
 export interface ParseResult {
   textAppend: string; // text to treat as user-visible response delta
+  activity?: string[]; // new tool/progress lines observed this chunk
   usage?: Usage; // present when the final result event arrives
   errored?: string; // error message from a result event
 }
@@ -97,6 +98,7 @@ export function feedClaudeStream(
 ): ParseResult {
   state.buffer += chunk;
   let textAppend = '';
+  const activity: string[] = [];
   let usage: Usage | undefined;
   let errored: string | undefined;
   let newPrevText = prevText;
@@ -119,13 +121,16 @@ export function feedClaudeStream(
       if (Array.isArray(content)) {
         const texts: string[] = [];
         for (const block of content) {
-          if (
-            block &&
-            typeof block === 'object' &&
-            (block as { type?: string }).type === 'text'
-          ) {
+          if (!block || typeof block !== 'object') continue;
+          const bt = (block as { type?: string }).type;
+          if (bt === 'text') {
             const t = (block as { text?: string }).text;
             if (typeof t === 'string') texts.push(t);
+          } else if (bt === 'tool_use') {
+            const name = (block as { name?: string }).name ?? 'tool';
+            const input = (block as { input?: Record<string, unknown> }).input ?? {};
+            const summary = summarizeToolUse(name, input);
+            if (summary) activity.push(summary);
           }
         }
         const fullText = texts.join('');
@@ -163,5 +168,43 @@ export function feedClaudeStream(
       };
     }
   }
-  return { textAppend, usage, errored };
+  return { textAppend, activity: activity.length ? activity : undefined, usage, errored };
+}
+
+function summarizeToolUse(name: string, input: Record<string, unknown>): string | null {
+  const firstString = (...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = input[k];
+      if (typeof v === 'string' && v) return v;
+    }
+    return null;
+  };
+  const truncate = (s: string, n = 80) =>
+    s.length > n ? s.slice(0, n) + '…' : s;
+  switch (name) {
+    case 'Bash': {
+      const cmd = firstString('command');
+      return cmd ? `$ ${truncate(cmd, 120)}` : '$ (bash)';
+    }
+    case 'Read':
+    case 'view_file':
+      return `→ read ${firstString('file_path', 'path') ?? ''}`;
+    case 'Edit':
+    case 'edit_file':
+      return `→ edit ${firstString('file_path', 'path') ?? ''}`;
+    case 'Write':
+    case 'write_file':
+      return `→ write ${firstString('file_path', 'path') ?? ''}`;
+    case 'Glob':
+      return `→ glob ${firstString('pattern') ?? ''}`;
+    case 'Grep':
+    case 'search':
+      return `→ grep ${truncate(firstString('pattern', 'query') ?? '', 60)}`;
+    case 'WebFetch':
+      return `→ fetch ${firstString('url') ?? ''}`;
+    case 'TodoWrite':
+      return '→ updated todo list';
+    default:
+      return `→ ${name}`;
+  }
 }
