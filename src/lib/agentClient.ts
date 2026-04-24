@@ -14,6 +14,7 @@ export interface ExecRequest {
   command: string;
   args?: string[];
   cwd?: string;
+  stdin?: string;
 }
 
 export interface DirEntry {

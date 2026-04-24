@@ -48,15 +48,28 @@ export function isTrackable(preset: ModelPreset | null): boolean {
 }
 
 /**
- * Returns the args to actually spawn with. For tracked Claude runs we
- * inject --output-format stream-json --verbose so the CLI emits
- * token/usage events we can parse. We also strip conflicting
- * --output-format and --verbose flags the user might have set.
+ * Decides how to invoke a model preset:
+ * - For claude / codex (known to accept prompts from stdin), we pipe the
+ *   prompt via stdin to dodge OS shell quoting issues (Windows cmd.exe
+ *   would otherwise split prompts on characters like & | < > ^).
+ * - For other CLIs, we append the prompt as a positional arg (default
+ *   behavior — user's custom preset knows what it wants).
+ * - Tracked Claude runs also strip any existing --output-format /
+ *   --verbose flags and replace them with stream-json + --verbose.
  */
-export function argsForRun(preset: ModelPreset, prompt: string): string[] {
+export function buildExecForModel(
+  preset: ModelPreset,
+  prompt: string,
+): { args: string[]; stdin?: string } {
+  const usesStdin = preset.cli === 'claude' || preset.cli === 'codex';
+
   if (!isTrackable(preset)) {
-    return [...preset.args, prompt];
+    if (usesStdin) {
+      return { args: [...preset.args], stdin: prompt };
+    }
+    return { args: [...preset.args, prompt] };
   }
+
   const out: string[] = [];
   for (let i = 0; i < preset.args.length; i++) {
     const a = preset.args[i];
@@ -68,8 +81,8 @@ export function argsForRun(preset: ModelPreset, prompt: string): string[] {
     out.push(a);
   }
   out.push('--output-format', 'stream-json', '--verbose');
-  out.push(prompt);
-  return out;
+  // tracked claude always goes through stdin; tracked codex too if ever added
+  return { args: out, stdin: prompt };
 }
 
 interface ParserState {

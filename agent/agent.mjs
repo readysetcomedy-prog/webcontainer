@@ -74,19 +74,32 @@ async function safeReply(id, op, fn) {
 }
 
 function exec(req) {
-  const { id, command, args = [], cwd } = req;
+  const { id, command, args = [], cwd, stdin } = req;
   if (!id || !command) return;
-  console.log(`[exec ${id}] ${command} ${args.join(' ')}${cwd ? ` (cwd=${cwd})` : ''}`);
+  console.log(
+    `[exec ${id}] ${command} ${args.join(' ')}${cwd ? ` (cwd=${cwd})` : ''}${stdin ? ` (stdin: ${stdin.length} bytes)` : ''}`,
+  );
   let child;
   try {
     child = spawn(command, args, {
       cwd: cwd || env.HOME || env.USERPROFILE,
       env: { ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [typeof stdin === 'string' ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
     send('exit', { id, code: -1, error: String(e?.message ?? e) });
     return;
+  }
+  if (typeof stdin === 'string' && child.stdin) {
+    try {
+      child.stdin.end(stdin, 'utf-8');
+    } catch (e) {
+      send('output', {
+        id,
+        stream: 'stderr',
+        data: `[agent] failed to write stdin: ${String(e?.message ?? e)}\n`,
+      });
+    }
   }
   procs.set(id, child);
   child.stdout.on('data', (d) =>

@@ -3,7 +3,7 @@ import type { AgentClient, AgentInfo } from '../lib/agentClient';
 import type { ModelPreset } from '../lib/userSecrets';
 import {
   addUsage,
-  argsForRun,
+  buildExecForModel,
   emptyUsage,
   feedClaudeStream,
   formatCost,
@@ -225,7 +225,7 @@ export default function ChatPanel({
     const isClaude = selected.cli === 'claude';
     const continuation =
       isClaude && sessionStartedRef.current ? ['--continue'] : [];
-    const runArgs = argsForRun(
+    const { args: runArgs, stdin } = buildExecForModel(
       { ...selected, args: [...selected.args, ...continuation] },
       trimmed,
     );
@@ -233,7 +233,7 @@ export default function ChatPanel({
     parserRef.current = tracking ? makeParser() : null;
     prevTextRef.current = '';
     setManualHeight(null);
-    agent.exec({ id: runId, command: selected.cli, args: runArgs, cwd });
+    agent.exec({ id: runId, command: selected.cli, args: runArgs, cwd, stdin });
   };
 
   const cancel = () => {
