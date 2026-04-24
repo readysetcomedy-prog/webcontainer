@@ -24,7 +24,7 @@ export default function AgentPanel({
   activeProject,
   onSetLocalPath,
 }: AgentPanelProps) {
-  const [copied, setCopied] = useState<'cmd' | 'id' | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const machineKey = agentInfo?.host ?? null;
   const storedForThisMachine = machineKey
     ? activeProject?.pathsByMachine?.[machineKey]
@@ -44,9 +44,10 @@ export default function AgentPanel({
     setPathErr(null);
   }, [activeProject?.id, machineKey, initialPath]);
 
-  const cmd = `npx -y @getxsite/agent --user-id ${userId}`;
+  const installCmd = 'npm install -g @getxsite/agent';
+  const runCmd = `getxsite-agent --user-id ${userId}`;
 
-  const copy = async (text: string, kind: 'cmd' | 'id') => {
+  const copy = async (text: string, kind: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(kind);
@@ -119,17 +120,34 @@ export default function AgentPanel({
 
       <div>
         <div className="hint-text" style={{ marginBottom: 4 }}>
-          Run this on your laptop (works on Windows, macOS, Linux):
+          Install once (any terminal — Windows, macOS, Linux):
         </div>
         <div className="agent-cmd">
-          <code>{cmd}</code>
+          <code>{installCmd}</code>
           <button
             className="icon-button"
-            onClick={() => copy(cmd, 'cmd')}
+            onClick={() => copy(installCmd, 'cmd')}
             title="Copy"
           >
             {copied === 'cmd' ? '✓' : '⧉'}
           </button>
+        </div>
+        <div className="hint-text" style={{ marginTop: 8, marginBottom: 4 }}>
+          Then run whenever you want to connect:
+        </div>
+        <div className="agent-cmd">
+          <code>{runCmd}</code>
+          <button
+            className="icon-button"
+            onClick={() => copy(runCmd, 'run')}
+            title="Copy"
+          >
+            {copied === 'run' ? '✓' : '⧉'}
+          </button>
+        </div>
+        <div className="hint-text" style={{ marginTop: 6 }}>
+          To upgrade later:{' '}
+          <code>npm install -g @getxsite/agent@latest</code>
         </div>
       </div>
 
