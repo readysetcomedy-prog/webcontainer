@@ -1,0 +1,13 @@
+{
+  "name": "@getxsite/agent",
+  "version": "0.1.0",
+  "description": "Local agent for GetXsite.com — runs claude/codex on your machine and talks to the studio over a Supabase Realtime channel.",
+  "type": "module",
+  "bin": {
+    "getxsite-agent": "./bin/agent.mjs"
+  },
+  "files": ["bin", "README.md"],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.104.1"
+  }
+}

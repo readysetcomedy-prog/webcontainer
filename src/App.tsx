@@ -33,6 +33,8 @@ import type { Toast } from './components/Toasts';
 import type { Session } from '@supabase/supabase-js';
 import LoginGate from './components/LoginGate';
 import LandingPage from './components/LandingPage';
+import ChatPanel from './components/ChatPanel';
+import { AgentClient, type AgentInfo } from './lib/agentClient';
 
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
@@ -58,6 +60,9 @@ export default function App() {
   );
   const [session, setSession] = useState<Session | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const [agentInfo, setAgentInfoState] = useState<AgentInfo | null>(null);
+  const agentRef = useRef<AgentClient | null>(null);
+  const [bottomTab, setBottomTab] = useState<'terminal' | 'chat'>('terminal');
 
   useEffect(() => {
     let mounted = true;
@@ -74,6 +79,26 @@ export default function App() {
       sub.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session) {
+      if (agentRef.current) {
+        agentRef.current.disconnect();
+        agentRef.current = null;
+      }
+      setAgentInfoState(null);
+      return;
+    }
+    const client = new AgentClient(session.user.id);
+    agentRef.current = client;
+    const off = client.onAgent((info) => setAgentInfoState(info));
+    client.connect();
+    return () => {
+      off();
+      client.disconnect();
+      if (agentRef.current === client) agentRef.current = null;
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -783,7 +808,9 @@ export default function App() {
         onDownload={downloadProject}
         canDownload={!!currentRepoKey}
         userEmail={session.user.email ?? ''}
+        userId={session.user.id}
         onSignOut={() => supabase.auth.signOut()}
+        agentInfo={agentInfo}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">
@@ -817,8 +844,35 @@ export default function App() {
               />
             </Panel>
             <Separator className="resize-y" />
-            <Panel defaultSize={30} minSize={10}>
-              <Terminal logs={logs} />
+            <Panel defaultSize={32} minSize={12}>
+              <div className="bottom-pane">
+                <div className="bottom-tabs">
+                  <button
+                    className={`bottom-tab ${bottomTab === 'terminal' ? 'active' : ''}`}
+                    onClick={() => setBottomTab('terminal')}
+                  >
+                    Terminal
+                  </button>
+                  <button
+                    className={`bottom-tab ${bottomTab === 'chat' ? 'active' : ''}`}
+                    onClick={() => setBottomTab('chat')}
+                  >
+                    Chat
+                    {agentInfo && <span className="bottom-tab-dot" />}
+                  </button>
+                </div>
+                <div className="bottom-tab-body">
+                  {bottomTab === 'terminal' ? (
+                    <Terminal logs={logs} />
+                  ) : (
+                    <ChatPanel
+                      agent={agentRef.current}
+                      agentInfo={agentInfo}
+                      userId={session.user.id}
+                    />
+                  )}
+                </div>
+              </div>
             </Panel>
           </Group>
         </Panel>

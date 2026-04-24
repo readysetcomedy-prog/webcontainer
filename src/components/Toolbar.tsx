@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { GhUser } from '../lib/github';
 import GitHubPanel from './GitHubPanel';
 import EnvPanel from './EnvPanel';
+import AgentPanel from './AgentPanel';
+import type { AgentInfo } from '../lib/agentClient';
 
 export interface ToolbarProps {
   booting: boolean;
@@ -29,7 +31,9 @@ export interface ToolbarProps {
   onDownload: () => void;
   canDownload: boolean;
   userEmail: string;
+  userId: string;
   onSignOut: () => void;
+  agentInfo: AgentInfo | null;
 }
 
 export default function Toolbar({
@@ -58,11 +62,14 @@ export default function Toolbar({
   onDownload,
   canDownload,
   userEmail,
+  userId,
   onSignOut,
+  agentInfo,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [siteId, setSiteId] = useState(defaultNetlifySiteId);
 
   useEffect(() => {
@@ -150,6 +157,17 @@ export default function Toolbar({
           Deploy to Netlify
         </button>
         <button
+          onClick={() => setAgentOpen((v) => !v)}
+          title={
+            agentInfo ? `Local agent: ${agentInfo.host}` : 'Local agent setup'
+          }
+        >
+          Agent
+          <span className={`agent-pill ${agentInfo ? 'on' : 'off'}`}>
+            {agentInfo ? 'on' : 'off'}
+          </span>
+        </button>
+        <button
           className="signout-button"
           onClick={onSignOut}
           title={userEmail ? `Signed in as ${userEmail} — click to sign out` : 'Sign out'}
@@ -189,6 +207,7 @@ export default function Toolbar({
           onClose={() => setEnvOpen(false)}
         />
       )}
+      {agentOpen && <AgentPanel userId={userId} agentInfo={agentInfo} />}
       {deployOpen && (
         <div className="popover">
           <div className="popover-title">Deploy to Netlify</div>
