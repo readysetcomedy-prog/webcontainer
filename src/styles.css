@@ -1649,6 +1649,28 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--border);
 }
 
+.agent-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.agent-path-input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  width: 100%;
+}
+
+.agent-path-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .log {
   white-space: pre-wrap;
   line-height: 1.4;

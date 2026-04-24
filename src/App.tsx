@@ -505,6 +505,58 @@ export default function App() {
     [log],
   );
 
+  const setProjectLocalPath = useCallback(
+    async (path: string) => {
+      if (!activeProject) return;
+      try {
+        const saved = await updateProjectFields(activeProject.id, { localPath: path });
+        setProjects((prev) =>
+          prev.map((p) => (p.id === saved.id ? saved : p)),
+        );
+        log(`Local path saved for "${activeProject.name}": ${path}`, 'info');
+      } catch (e) {
+        log(`Save local path failed: ${(e as Error).message}`, 'err');
+        throw e;
+      }
+    },
+    [activeProject, log],
+  );
+
+  const buildExpo = useCallback(
+    (platform: 'ios' | 'android') => {
+      const a = agentRef.current;
+      if (!a || !activeProject?.localPath) {
+        notify('error', 'Build needs the local agent + project local path set.');
+        return;
+      }
+      const id = `eas_${Date.now().toString(36)}`;
+      log(`$ eas build --platform ${platform} --non-interactive`, 'info');
+      notify('info', `Building for ${platform === 'ios' ? 'iOS' : 'Android'} via EAS — this can take a while.`);
+      const off = a.onEvent((evt) => {
+        if (evt.type === 'output' && evt.id === id) {
+          log(evt.data, evt.stream === 'stderr' ? 'err' : 'out');
+        } else if (evt.type === 'exit' && evt.id === id) {
+          off();
+          if (evt.code === 0) {
+            notify('success', `EAS ${platform} build submitted. Check the EAS dashboard for the artifact.`, {
+              url: 'https://expo.dev/accounts',
+              urlLabel: 'Open EAS dashboard',
+            });
+          } else {
+            notify('error', `EAS build exited with code ${evt.code}`);
+          }
+        }
+      });
+      a.exec({
+        id,
+        command: 'eas',
+        args: ['build', '--platform', platform, '--non-interactive'],
+        cwd: activeProject.localPath,
+      });
+    },
+    [activeProject, log, notify],
+  );
+
   const deleteProject = useCallback(
     async (id: string) => {
       try {
@@ -811,6 +863,10 @@ export default function App() {
         userId={session.user.id}
         onSignOut={() => supabase.auth.signOut()}
         agentInfo={agentInfo}
+        agent={agentRef.current}
+        activeProject={activeProject}
+        onSetLocalPath={setProjectLocalPath}
+        onBuildExpo={buildExpo}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">
@@ -869,6 +925,7 @@ export default function App() {
                       agent={agentRef.current}
                       agentInfo={agentInfo}
                       userId={session.user.id}
+                      cwd={activeProject?.localPath}
                     />
                   )}
                 </div>

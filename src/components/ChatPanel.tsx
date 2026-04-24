@@ -29,6 +29,13 @@ export default function ChatPanel({
   const [tool, setTool] = useState<'claude' | 'codex'>('claude');
   const activeRunRef = useRef<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const sessionStartedRef = useRef(false);
+
+  // Reset session continuity when project (cwd) changes
+  useEffect(() => {
+    sessionStartedRef.current = false;
+    setMessages([]);
+  }, [cwd]);
 
   useEffect(() => {
     if (!agent) return;
@@ -83,11 +90,22 @@ export default function ChatPanel({
     const runId = newMsgId();
     activeRunRef.current = runId;
     const command = tool === 'claude' ? 'claude' : 'codex';
-    const args =
-      tool === 'claude'
-        ? ['-p', trimmed, '--output-format', 'text']
-        : ['exec', '--quiet', trimmed];
+    let args: string[];
+    if (tool === 'claude') {
+      args =
+        sessionStartedRef.current
+          ? ['-p', '--continue', trimmed, '--output-format', 'text']
+          : ['-p', trimmed, '--output-format', 'text'];
+    } else {
+      args = ['exec', '--quiet', trimmed];
+    }
+    sessionStartedRef.current = true;
     agent.exec({ id: runId, command, args, cwd });
+  };
+
+  const newConversation = () => {
+    sessionStartedRef.current = false;
+    setMessages([]);
   };
 
   const cancel = () => {
@@ -109,6 +127,13 @@ export default function ChatPanel({
           <option value="claude">Claude</option>
           <option value="codex">Codex</option>
         </select>
+        <button
+          className="link-button"
+          onClick={newConversation}
+          title="Start a fresh conversation (forgets prior context)"
+        >
+          New
+        </button>
         <span
           className={`chat-status ${connected ? 'on' : 'off'}`}
           title={

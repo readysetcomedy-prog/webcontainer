@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { spawn } from 'node:child_process';
 import { hostname } from 'node:os';
 import { argv, env, exit } from 'node:process';
+import { promises as fs, watch as fsWatch } from 'node:fs';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 
 const SUPABASE_URL =
   env.GETXSITE_SUPABASE_URL || 'https://swbrewprhjmujomqtdpc.supabase.co';
@@ -31,8 +33,22 @@ const channel = supabase.channel(channelName, {
 });
 
 const procs = new Map();
+const watchers = new Map();
 const host = hostname();
-const version = '0.1.0';
+const version = '0.2.0';
+
+const SKIP_DIRS = new Set([
+  'node_modules',
+  '.git',
+  '.next',
+  '.turbo',
+  '.cache',
+  '.expo',
+  'dist',
+  'build',
+  'out',
+  '.DS_Store',
+]);
 
 function send(type, payload) {
   channel.send({
@@ -44,6 +60,15 @@ function send(type, payload) {
 
 function announce() {
   send('hello', { host, version, ts: Date.now() });
+}
+
+async function safeReply(id, op, fn) {
+  try {
+    const data = await fn();
+    send(`${op}_ok`, { id, data });
+  } catch (e) {
+    send(`${op}_err`, { id, error: String(e?.message ?? e) });
+  }
 }
 
 function exec(req) {
@@ -78,12 +103,121 @@ function exec(req) {
   });
 }
 
-function kill(req) {
+function killProc(req) {
   const child = procs.get(req.id);
   if (child) child.kill('SIGTERM');
 }
 
-channel.on('broadcast', { event: 'studio' }, ({ payload }) => {
+async function listDir({ path, recursive }) {
+  const root = resolve(path);
+  if (recursive) {
+    const out = [];
+    await walk(root, root, out);
+    return { entries: out };
+  }
+  const ents = await fs.readdir(root, { withFileTypes: true });
+  return {
+    entries: ents
+      .filter((e) => !SKIP_DIRS.has(e.name))
+      .map((e) => ({
+        name: e.name,
+        path: relative(root, join(root, e.name)),
+        isDir: e.isDirectory(),
+      })),
+  };
+}
+
+async function walk(root, dir, out) {
+  let ents;
+  try {
+    ents = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of ents) {
+    if (SKIP_DIRS.has(e.name)) continue;
+    const full = join(dir, e.name);
+    if (e.isDirectory()) {
+      await walk(root, full, out);
+    } else if (e.isFile()) {
+      out.push({ path: relative(root, full), isDir: false });
+    }
+  }
+}
+
+async function readFile({ path }) {
+  const buf = await fs.readFile(resolve(path));
+  return { content: buf.toString('utf-8') };
+}
+
+async function writeFile({ path, content }) {
+  await fs.mkdir(resolve(path).replace(/\/[^/]+$/, ''), { recursive: true });
+  await fs.writeFile(resolve(path), content, 'utf-8');
+  return { ok: true };
+}
+
+function startWatch({ id, path }) {
+  if (!isAbsolute(path)) path = resolve(path);
+  if (watchers.has(id)) {
+    watchers.get(id).close();
+  }
+  let timer = null;
+  const pending = new Set();
+  const flush = () => {
+    if (pending.size === 0) return;
+    const changes = [...pending];
+    pending.clear();
+    send('fs_change', { id, changes });
+  };
+  try {
+    const w = fsWatch(path, { recursive: true }, (event, filename) => {
+      if (!filename) return;
+      const norm = String(filename);
+      const top = norm.split(/[\\/]/, 1)[0];
+      if (SKIP_DIRS.has(top)) return;
+      pending.add(norm);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(flush, 200);
+    });
+    watchers.set(id, w);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
+}
+
+function stopWatch({ id }) {
+  const w = watchers.get(id);
+  if (w) {
+    w.close();
+    watchers.delete(id);
+  }
+  return { ok: true };
+}
+
+async function gitClone({ url, dest }) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn('git', ['clone', url, dest], { stdio: 'pipe' });
+    let stderr = '';
+    child.stderr.on('data', (d) => (stderr += d.toString('utf-8')));
+    child.on('exit', (code) => {
+      if (code === 0) resolve({ ok: true });
+      else reject(new Error(stderr || `git clone exited ${code}`));
+    });
+    child.on('error', reject);
+  });
+}
+
+async function pathExists({ path }) {
+  try {
+    await fs.access(resolve(path));
+    return { exists: true };
+  } catch {
+    return { exists: false };
+  }
+}
+
+channel.on('broadcast', { event: 'studio' }, async ({ payload }) => {
   if (!payload || typeof payload !== 'object') return;
   switch (payload.type) {
     case 'ping':
@@ -93,7 +227,28 @@ channel.on('broadcast', { event: 'studio' }, ({ payload }) => {
       exec(payload);
       return;
     case 'kill':
-      kill(payload);
+      killProc(payload);
+      return;
+    case 'list':
+      await safeReply(payload.id, 'list', () => listDir(payload));
+      return;
+    case 'read':
+      await safeReply(payload.id, 'read', () => readFile(payload));
+      return;
+    case 'write':
+      await safeReply(payload.id, 'write', () => writeFile(payload));
+      return;
+    case 'exists':
+      await safeReply(payload.id, 'exists', () => pathExists(payload));
+      return;
+    case 'clone':
+      await safeReply(payload.id, 'clone', () => gitClone(payload));
+      return;
+    case 'watch_start':
+      send('watch_started', startWatch(payload));
+      return;
+    case 'watch_stop':
+      send('watch_stopped', stopWatch(payload));
       return;
     default:
       return;
@@ -114,6 +269,7 @@ channel.subscribe((status) => {
 process.on('SIGINT', () => {
   console.log('[agent] shutting down');
   for (const child of procs.values()) child.kill('SIGTERM');
+  for (const w of watchers.values()) w.close();
   channel.unsubscribe();
   exit(0);
 });

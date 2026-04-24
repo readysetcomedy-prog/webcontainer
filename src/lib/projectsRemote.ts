@@ -10,6 +10,7 @@ interface ProjectRow {
   branch: string;
   env_content: string;
   netlify_site_id: string | null;
+  local_path: string | null;
   updated_at: string;
 }
 
@@ -22,6 +23,7 @@ function rowToProject(r: ProjectRow): Project {
     branch: r.branch,
     envContent: r.env_content,
     netlifySiteId: r.netlify_site_id ?? undefined,
+    localPath: r.local_path ?? undefined,
     updatedAt: new Date(r.updated_at).getTime(),
   };
 }
@@ -88,7 +90,7 @@ export async function findOrCreateProject(
 export async function updateProjectFields(
   id: string,
   patch: Partial<
-    Pick<Project, 'name' | 'branch' | 'envContent' | 'netlifySiteId'>
+    Pick<Project, 'name' | 'branch' | 'envContent' | 'netlifySiteId' | 'localPath'>
   >,
 ): Promise<Project> {
   const payload: Record<string, unknown> = {
@@ -99,6 +101,8 @@ export async function updateProjectFields(
   if (patch.envContent !== undefined) payload.env_content = patch.envContent;
   if (patch.netlifySiteId !== undefined)
     payload.netlify_site_id = patch.netlifySiteId || null;
+  if (patch.localPath !== undefined)
+    payload.local_path = patch.localPath || null;
   const { data, error } = await supabase
     .from('projects')
     .update(payload)

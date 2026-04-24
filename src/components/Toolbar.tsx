@@ -3,7 +3,8 @@ import type { GhUser } from '../lib/github';
 import GitHubPanel from './GitHubPanel';
 import EnvPanel from './EnvPanel';
 import AgentPanel from './AgentPanel';
-import type { AgentInfo } from '../lib/agentClient';
+import type { AgentClient, AgentInfo } from '../lib/agentClient';
+import type { Project } from '../lib/projects';
 
 export interface ToolbarProps {
   booting: boolean;
@@ -34,6 +35,10 @@ export interface ToolbarProps {
   userId: string;
   onSignOut: () => void;
   agentInfo: AgentInfo | null;
+  agent: AgentClient | null;
+  activeProject: Project | null;
+  onSetLocalPath: (path: string) => Promise<void>;
+  onBuildExpo: (platform: 'ios' | 'android') => void;
 }
 
 export default function Toolbar({
@@ -65,6 +70,10 @@ export default function Toolbar({
   userId,
   onSignOut,
   agentInfo,
+  agent,
+  activeProject,
+  onSetLocalPath,
+  onBuildExpo,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -156,6 +165,22 @@ export default function Toolbar({
         <button onClick={() => setDeployOpen((v) => !v)} disabled={booting}>
           Deploy to Netlify
         </button>
+        {agentInfo && activeProject?.localPath && (
+          <>
+            <button
+              onClick={() => onBuildExpo('ios')}
+              title="Run eas build --platform ios on your laptop"
+            >
+              Build iOS
+            </button>
+            <button
+              onClick={() => onBuildExpo('android')}
+              title="Run eas build --platform android on your laptop"
+            >
+              Build Android
+            </button>
+          </>
+        )}
         <button
           onClick={() => setAgentOpen((v) => !v)}
           title={
@@ -207,7 +232,15 @@ export default function Toolbar({
           onClose={() => setEnvOpen(false)}
         />
       )}
-      {agentOpen && <AgentPanel userId={userId} agentInfo={agentInfo} />}
+      {agentOpen && (
+        <AgentPanel
+          userId={userId}
+          agentInfo={agentInfo}
+          agent={agent}
+          activeProject={activeProject}
+          onSetLocalPath={onSetLocalPath}
+        />
+      )}
       {deployOpen && (
         <div className="popover">
           <div className="popover-title">Deploy to Netlify</div>

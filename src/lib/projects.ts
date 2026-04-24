@@ -6,6 +6,7 @@ export interface Project {
   branch: string;
   envContent: string;
   netlifySiteId?: string;
+  localPath?: string;
   updatedAt: number;
 }
 
