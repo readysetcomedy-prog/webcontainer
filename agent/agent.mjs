@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createClient } from '@supabase/supabase-js';
-import { spawn } from 'node:child_process';
+import spawn from 'cross-spawn';
 import { hostname, homedir, platform } from 'node:os';
 import { argv, env, exit } from 'node:process';
 import { promises as fs, watch as fsWatch } from 'node:fs';
@@ -80,9 +80,8 @@ function exec(req) {
   let child;
   try {
     child = spawn(command, args, {
-      cwd: cwd || env.HOME,
+      cwd: cwd || env.HOME || env.USERPROFILE,
       env: { ...env },
-      shell: false,
     });
   } catch (e) {
     send('exit', { id, code: -1, error: String(e?.message ?? e) });
