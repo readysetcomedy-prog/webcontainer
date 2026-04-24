@@ -1552,6 +1552,45 @@ button.primary:hover:not(:disabled) {
   color: var(--err);
 }
 
+.chat-msg-usage {
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, monospace;
+  padding: 0 2px;
+  line-height: 1.4;
+}
+
+.session-usage {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 10px;
+  color: var(--ok);
+  font-family: ui-monospace, monospace;
+  padding: 2px 8px;
+  background: rgba(125, 212, 159, 0.08);
+  border: 1px solid rgba(125, 212, 159, 0.25);
+  border-radius: 10px;
+  cursor: help;
+}
+
+.checkbox-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 10px !important;
+}
+
+.checkbox-row input[type='checkbox'] {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.checkbox-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;

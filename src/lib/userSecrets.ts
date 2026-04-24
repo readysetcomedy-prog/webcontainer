@@ -5,6 +5,7 @@ export interface ModelPreset {
   label: string;
   cli: string;
   args: string[];
+  trackTokens?: boolean;
 }
 
 export interface UserSecrets {
@@ -28,13 +29,15 @@ const DEFAULT_MODELS: ModelPreset[] = [
     id: 'seed_claude',
     label: 'Claude (default)',
     cli: 'claude',
-    args: ['-p', '--output-format', 'text'],
+    args: ['-p'],
+    trackTokens: true,
   },
   {
     id: 'seed_codex',
     label: 'Codex (default)',
     cli: 'codex',
     args: ['exec', '--quiet'],
+    trackTokens: false,
   },
 ];
 

@@ -1,12 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentClient, AgentInfo } from '../lib/agentClient';
 import type { ModelPreset } from '../lib/userSecrets';
+import {
+  addUsage,
+  argsForRun,
+  emptyUsage,
+  feedClaudeStream,
+  formatCost,
+  formatNum,
+  isTrackable,
+  makeParser,
+  type Usage,
+} from '../lib/tokenParser';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
   pending?: boolean;
+  usage?: Usage;
 }
 
 const newMsgId = () =>
@@ -37,27 +49,85 @@ export default function ChatPanel({
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [sessionUsage, setSessionUsage] = useState<Usage>(() => emptyUsage());
   const activeRunRef = useRef<string | null>(null);
+  const parserRef = useRef<ReturnType<typeof makeParser> | null>(null);
+  const prevTextRef = useRef<string>('');
   const endRef = useRef<HTMLDivElement>(null);
   const sessionStartedRef = useRef(false);
 
   const selected =
     models.find((m) => m.id === selectedModelId) ?? models[0] ?? null;
+  const tracking = isTrackable(selected);
 
   useEffect(() => {
     sessionStartedRef.current = false;
     setMessages([]);
+    setSessionUsage(emptyUsage());
   }, [cwd, selected?.id]);
 
   useEffect(() => {
     if (!agent) return;
     const off = agent.onEvent((evt) => {
       if (evt.type === 'output' && evt.id === activeRunRef.current) {
+        const parser = parserRef.current;
+        if (parser && tracking) {
+          if (evt.stream === 'stderr') {
+            // surface errors inline as text
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== 'assistant' || !last.pending) return prev;
+              return [
+                ...prev.slice(0, -1),
+                { ...last, text: last.text + evt.data },
+              ];
+            });
+            return;
+          }
+          const { textAppend, usage, errored } = feedClaudeStream(
+            parser,
+            evt.data,
+            prevTextRef.current,
+          );
+          if (textAppend) {
+            prevTextRef.current += textAppend;
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== 'assistant' || !last.pending) return prev;
+              return [
+                ...prev.slice(0, -1),
+                { ...last, text: last.text + textAppend },
+              ];
+            });
+          }
+          if (errored) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== 'assistant' || !last.pending) return prev;
+              return [
+                ...prev.slice(0, -1),
+                { ...last, text: last.text + `\n[error: ${errored}]` },
+              ];
+            });
+          }
+          if (usage) {
+            setSessionUsage((s) => addUsage(s, usage));
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== 'assistant') return prev;
+              return [...prev.slice(0, -1), { ...last, usage }];
+            });
+          }
+          return;
+        }
+        // untracked path
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (!last || last.role !== 'assistant' || !last.pending) return prev;
-          const updated = { ...last, text: last.text + evt.data };
-          return [...prev.slice(0, -1), updated];
+          return [
+            ...prev.slice(0, -1),
+            { ...last, text: last.text + evt.data },
+          ];
         });
       } else if (evt.type === 'exit' && evt.id === activeRunRef.current) {
         setMessages((prev) => {
@@ -73,10 +143,12 @@ export default function ChatPanel({
           ];
         });
         activeRunRef.current = null;
+        parserRef.current = null;
+        prevTextRef.current = '';
       }
     });
     return off;
-  }, [agent]);
+  }, [agent, tracking]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -104,9 +176,14 @@ export default function ChatPanel({
     const isClaude = selected.cli === 'claude';
     const continuation =
       isClaude && sessionStartedRef.current ? ['--continue'] : [];
-    const args = [...selected.args, ...continuation, trimmed];
+    const runArgs = argsForRun(
+      { ...selected, args: [...selected.args, ...continuation] },
+      trimmed,
+    );
     sessionStartedRef.current = true;
-    agent.exec({ id: runId, command: selected.cli, args, cwd });
+    parserRef.current = tracking ? makeParser() : null;
+    prevTextRef.current = '';
+    agent.exec({ id: runId, command: selected.cli, args: runArgs, cwd });
   };
 
   const cancel = () => {
@@ -117,9 +194,12 @@ export default function ChatPanel({
   const newConversation = () => {
     sessionStartedRef.current = false;
     setMessages([]);
+    setSessionUsage(emptyUsage());
   };
 
   const connected = !!agentInfo;
+  const hasSessionUsage =
+    sessionUsage.inputTokens + sessionUsage.outputTokens > 0;
 
   return (
     <div className="chat-panel">
@@ -152,6 +232,14 @@ export default function ChatPanel({
         >
           New
         </button>
+        {hasSessionUsage && (
+          <span
+            className="session-usage"
+            title={`Session: ${sessionUsage.inputTokens} in, ${sessionUsage.outputTokens} out. Cost shown is API-equivalent — your subscription is flat-rate, so this is what you're saving vs. the API.`}
+          >
+            {formatNum(sessionUsage.inputTokens)} in · {formatNum(sessionUsage.outputTokens)} out · saved {formatCost(sessionUsage.costUsd)}
+          </span>
+        )}
         <span
           className={`chat-status ${connected ? 'on' : 'off'}`}
           title={
@@ -171,6 +259,13 @@ export default function ChatPanel({
                 Type a prompt below — it will run as{' '}
                 <code>{selected.cli} …</code> on <b>{agentInfo!.host}</b> using
                 your own subscription.
+                {tracking && (
+                  <div style={{ marginTop: 8, fontSize: 11 }}>
+                    Token counts + API-equivalent cost shown per message.
+                    (Your subscription is flat-rate — cost shown is what
+                    you'd be paying on the API.)
+                  </div>
+                )}
               </>
             ) : !selected ? (
               <>
@@ -193,6 +288,23 @@ export default function ChatPanel({
               {m.role === 'user' ? 'You' : selected?.label ?? 'Assistant'}
             </div>
             <div className="chat-msg-text">{m.text || (m.pending ? '…' : '')}</div>
+            {m.usage && (
+              <div
+                className="chat-msg-usage"
+                title="Cost shown is what this prompt would cost on the Claude API. Your subscription is flat-rate, so this is what you're saving."
+              >
+                {formatNum(m.usage.inputTokens)} in
+                {m.usage.cacheReadTokens > 0 && (
+                  <> · {formatNum(m.usage.cacheReadTokens)} cached</>
+                )}
+                {' · '}
+                {formatNum(m.usage.outputTokens)} out · saved{' '}
+                {formatCost(m.usage.costUsd)}
+                {m.usage.durationMs > 0 && (
+                  <> · {(m.usage.durationMs / 1000).toFixed(1)}s</>
+                )}
+              </div>
+            )}
           </div>
         ))}
         <div ref={endRef} />

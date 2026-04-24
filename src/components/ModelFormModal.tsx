@@ -27,8 +27,9 @@ export default function ModelFormModal({
   const [label, setLabel] = useState(initial?.label ?? '');
   const [cli, setCli] = useState(initial?.cli ?? 'claude');
   const [argsText, setArgsText] = useState(
-    initial ? argsToLines(initial.args) : '-p\n--model\nopus\n--output-format\ntext',
+    initial ? argsToLines(initial.args) : '-p',
   );
+  const [trackTokens, setTrackTokens] = useState(initial?.trackTokens ?? false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function ModelFormModal({
       setLabel(initial.label);
       setCli(initial.cli);
       setArgsText(argsToLines(initial.args));
+      setTrackTokens(!!initial.trackTokens);
     }
   }, [initial]);
 
@@ -57,6 +59,7 @@ export default function ModelFormModal({
       label: label.trim(),
       cli: cli.trim(),
       args: previewArgs,
+      trackTokens,
     });
   };
 
@@ -115,6 +118,22 @@ export default function ModelFormModal({
               spellCheck={false}
               rows={6}
             />
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={trackTokens}
+              onChange={(e) => setTrackTokens(e.target.checked)}
+            />
+            <span>
+              Track tokens & API-equivalent cost
+              <span className="hint-text">
+                Currently supported for <code>claude</code> only. Uses
+                <code> --output-format stream-json</code> to capture input/output
+                tokens and estimated API cost (your subscription is flat-rate;
+                this is what you'd be paying on the API instead).
+              </span>
+            </span>
           </label>
           <label>
             Preview
