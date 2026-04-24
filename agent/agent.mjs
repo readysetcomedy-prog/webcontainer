@@ -82,6 +82,7 @@ function exec(req) {
     child = spawn(command, args, {
       cwd: cwd || env.HOME || env.USERPROFILE,
       env: { ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
     send('exit', { id, code: -1, error: String(e?.message ?? e) });
