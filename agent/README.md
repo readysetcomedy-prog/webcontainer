@@ -4,24 +4,29 @@ Runs on your machine. Lets the GetXsite studio drive a real `claude` (or `codex`
 
 The agent talks to the studio over a Supabase Realtime channel scoped to your user id — no inbound port required, works behind any firewall.
 
-## Install
+## Install + run (one command)
+
+```bash
+GETXSITE_USER_ID=<your-uuid> npx -y @getxsite/agent
+```
+
+npx downloads the package, runs it, and leaves it cached. No global install required. Your user id is shown in the studio toolbar → **Agent** panel.
+
+## Alternative: install globally
 
 ```bash
 npm install -g @getxsite/agent
-```
-
-## Run
-
-Find your user id at <https://getxsite.com/app> → **Local agent** panel. Then:
-
-```bash
-GETXSITE_USER_ID=<your-uuid> getxsite-agent
-```
-
-Or:
-
-```bash
 getxsite-agent --user-id <your-uuid>
+```
+
+## Run from a local checkout (for development)
+
+If you're working on the agent itself, clone this repo and run:
+
+```bash
+cd agent
+npm install
+node bin/agent.mjs --user-id <your-uuid>
 ```
 
 You should see:

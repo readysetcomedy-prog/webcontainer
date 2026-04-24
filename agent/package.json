@@ -1,13 +1,41 @@
 {
   "name": "@getxsite/agent",
-  "version": "0.1.0",
-  "description": "Local agent for GetXsite.com — runs claude/codex on your machine and talks to the studio over a Supabase Realtime channel.",
+  "version": "0.2.0",
+  "description": "Local agent for GetXsite.com — lets the studio drive your own claude / codex / shell / filesystem over a secure Supabase Realtime channel.",
+  "keywords": [
+    "getxsite",
+    "agent",
+    "claude",
+    "codex",
+    "dev-environment",
+    "webcontainer"
+  ],
+  "homepage": "https://getxsite.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/readysetcomedy-prog/webcontainer.git",
+    "directory": "agent"
+  },
+  "bugs": {
+    "url": "https://github.com/readysetcomedy-prog/webcontainer/issues"
+  },
+  "license": "MIT",
+  "author": "GetXsite.com",
   "type": "module",
   "bin": {
     "getxsite-agent": "./bin/agent.mjs"
   },
-  "files": ["bin", "README.md"],
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

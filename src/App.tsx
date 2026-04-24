@@ -34,6 +34,8 @@ import type { Session } from '@supabase/supabase-js';
 import LoginGate from './components/LoginGate';
 import LandingPage from './components/LandingPage';
 import ChatPanel from './components/ChatPanel';
+import Onboarding from './components/Onboarding';
+import SettingsModal from './components/SettingsModal';
 import { AgentClient, type AgentInfo } from './lib/agentClient';
 
 const textOf = (c: string | Uint8Array): string =>
@@ -63,6 +65,10 @@ export default function App() {
   const [agentInfo, setAgentInfoState] = useState<AgentInfo | null>(null);
   const agentRef = useRef<AgentClient | null>(null);
   const [bottomTab, setBottomTab] = useState<'terminal' | 'chat'>('terminal');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => localStorage.getItem('onboardingDismissed') === '1',
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -1052,10 +1058,42 @@ export default function App() {
     return <LoginGate />;
   }
 
+  const showOnboarding =
+    !onboardingDismissed &&
+    (!ghToken || projects.length === 0);
+  const dismissOnboarding = () => {
+    localStorage.setItem('onboardingDismissed', '1');
+    setOnboardingDismissed(true);
+  };
+
   return (
     <>
       <Toasts items={toasts} onDismiss={dismissToast} />
+      {settingsOpen && (
+        <SettingsModal
+          email={session.user.email ?? ''}
+          userId={session.user.id}
+          ghToken={ghToken}
+          netlifyToken={netlifyToken}
+          projectCount={projects.length}
+          onResetGhToken={disconnectGitHub}
+          onResetNetlifyToken={() => setNetlifyToken('')}
+          onSignOut={() => {
+            supabase.auth.signOut();
+            setSettingsOpen(false);
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     <div className="app">
+      {showOnboarding && (
+        <Onboarding
+          hasGitHub={!!ghToken}
+          hasAgent={!!agentInfo}
+          hasNetlify={!!netlifyToken}
+          onDismiss={dismissOnboarding}
+        />
+      )}
       <Toolbar
         booting={booting}
         running={running}
@@ -1091,6 +1129,8 @@ export default function App() {
         onBuildExpo={buildExpo}
         log={log}
         notify={notify}
+        onOpenSettings={() => setSettingsOpen(true)}
+        currentBranch={currentBranch}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">

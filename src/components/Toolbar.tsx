@@ -4,6 +4,7 @@ import GitHubPanel from './GitHubPanel';
 import EnvPanel from './EnvPanel';
 import AgentPanel from './AgentPanel';
 import ActionsPanel from './ActionsPanel';
+import BranchPicker from './BranchPicker';
 import type { AgentClient, AgentInfo } from '../lib/agentClient';
 import type { Project } from '../lib/projects';
 
@@ -42,6 +43,8 @@ export interface ToolbarProps {
   onBuildExpo: (platform: 'ios' | 'android') => void;
   log: (text: string, kind?: 'info' | 'err' | 'out') => void;
   notify: (kind: 'info' | 'success' | 'error', message: string) => void;
+  onOpenSettings: () => void;
+  currentBranch: string | null;
 }
 
 export default function Toolbar({
@@ -79,6 +82,8 @@ export default function Toolbar({
   onBuildExpo,
   log,
   notify,
+  onOpenSettings,
+  currentBranch,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -103,6 +108,17 @@ export default function Toolbar({
           </span>
         )}
       </div>
+      {activeProject && token && currentBranch && (
+        <BranchPicker
+          token={token}
+          owner={activeProject.owner}
+          repo={activeProject.repo}
+          branch={currentBranch}
+          onPick={(b) =>
+            onSelectBranch(activeProject.owner, activeProject.repo, b)
+          }
+        />
+      )}
       <div className="toolbar-actions">
         {connected ? (
           <button
@@ -215,6 +231,12 @@ export default function Toolbar({
           <span className={`agent-pill ${agentInfo ? 'on' : 'off'}`}>
             {agentInfo ? 'on' : 'off'}
           </span>
+        </button>
+        <button
+          onClick={onOpenSettings}
+          title="Account & token settings"
+        >
+          Settings
         </button>
         <button
           className="signout-button"
