@@ -23,7 +23,8 @@
   "author": "GetXsite.com",
   "type": "module",
   "bin": {
-    "getxsite-agent": "agent.mjs"
+    "getxsite-agent": "agent.mjs",
+    "agent": "agent.mjs"
   },
   "files": [
     "agent.mjs",
