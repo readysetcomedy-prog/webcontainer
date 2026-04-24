@@ -1,0 +1,68 @@
+name: Publish agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: publish-agent
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install deps
+        working-directory: ./agent
+        run: npm install --no-package-lock
+
+      - name: Bump version
+        id: bump
+        working-directory: ./agent
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
+          npm version "$BUMP_TYPE" --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumped agent to $VERSION"
+
+      - name: Publish to npm
+        working-directory: ./agent
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Commit version bump + tag
+        run: |
+          git add agent/package.json
+          git commit -m "chore(agent): bump to ${{ steps.bump.outputs.version }} [skip ci]"
+          git tag "agent-v${{ steps.bump.outputs.version }}"
+          git push origin HEAD:main
+          git push origin "agent-v${{ steps.bump.outputs.version }}"
