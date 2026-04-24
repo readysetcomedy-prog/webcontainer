@@ -2,7 +2,6 @@ name: Publish agent
 
 on:
   push:
-    branches: [main]
     paths:
       - 'agent/**'
   workflow_dispatch:
@@ -64,5 +63,5 @@ jobs:
           git add agent/package.json
           git commit -m "chore(agent): bump to ${{ steps.bump.outputs.version }} [skip ci]"
           git tag "agent-v${{ steps.bump.outputs.version }}"
-          git push origin HEAD:main
+          git push origin "HEAD:${{ github.ref_name }}"
           git push origin "agent-v${{ steps.bump.outputs.version }}"
