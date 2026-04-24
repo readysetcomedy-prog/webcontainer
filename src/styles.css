@@ -1441,6 +1441,12 @@ button.primary:hover:not(:disabled) {
 .bottom-tab-body {
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.bottom-tab-pane {
+  height: 100%;
+  min-height: 0;
 }
 
 .chat-panel {
@@ -1609,7 +1615,9 @@ button.primary:hover:not(:disabled) {
   padding: 8px 10px;
   font-size: 13px;
   font-family: inherit;
-  resize: none;
+  resize: vertical;
+  min-height: 44px;
+  max-height: 400px;
 }
 
 .chat-input-row textarea:focus {

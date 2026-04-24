@@ -1294,13 +1294,19 @@ export default function App() {
                     {agentInfo && <span className="bottom-tab-dot" />}
                   </button>
                 </div>
-                <div
-                  className="bottom-tab-body"
-                  data-tour={bottomTab === 'chat' ? 'chat-panel' : undefined}
-                >
-                  {bottomTab === 'terminal' ? (
+                <div className="bottom-tab-body">
+                  <div
+                    className="bottom-tab-pane"
+                    data-tour={bottomTab === 'chat' ? undefined : undefined}
+                    style={{ display: bottomTab === 'terminal' ? 'block' : 'none' }}
+                  >
                     <Terminal logs={logs} />
-                  ) : (
+                  </div>
+                  <div
+                    className="bottom-tab-pane"
+                    data-tour={bottomTab === 'chat' ? 'chat-panel' : undefined}
+                    style={{ display: bottomTab === 'chat' ? 'block' : 'none' }}
+                  >
                     <ChatPanel
                       agent={agentRef.current}
                       agentInfo={agentInfo}
@@ -1312,7 +1318,7 @@ export default function App() {
                       onAddModel={() => setModelModal({ kind: 'new' })}
                       onManageModels={() => setSettingsOpen(true)}
                     />
-                  )}
+                  </div>
                 </div>
               </div>
             </Panel>
