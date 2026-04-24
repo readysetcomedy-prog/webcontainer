@@ -1,6 +1,6 @@
 {
   "name": "@getxsite/agent",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Local agent for GetXsite.com — lets the studio drive your own claude / codex / shell / filesystem over a secure Supabase Realtime channel.",
   "keywords": [
     "getxsite",
