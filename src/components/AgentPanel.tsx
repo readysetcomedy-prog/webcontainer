@@ -100,6 +100,14 @@ export default function AgentPanel({
         subscription. Nothing listens on your machine — the agent dials
         out to a private channel.
       </div>
+      <div className="popover-hint" style={{ fontSize: 11, lineHeight: 1.5 }}>
+        <b>One-time setup</b> (each command is run once, ever):
+        <br />1. <code>npm install -g @anthropic-ai/claude-code</code> then{' '}
+        <code>claude</code> (sign in to your Claude subscription)
+        <br />2. <code>npm install -g @getxsite/agent</code> (below)
+        <br />
+        <b>Each session</b>, run the agent command and leave the terminal open.
+      </div>
 
       <div className="agent-status-row">
         <div className={`agent-status-dot ${agentInfo ? 'on' : 'off'}`} />

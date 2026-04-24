@@ -257,11 +257,39 @@ channel.on('broadcast', { event: 'studio' }, async ({ payload }) => {
   }
 });
 
+function probeCli(cmd) {
+  return new Promise((resolve) => {
+    const args = plat === 'win32' ? ['/c', 'where', cmd] : ['-lc', `command -v ${cmd}`];
+    const sh = plat === 'win32' ? 'cmd.exe' : 'sh';
+    const child = spawn(sh, args, { stdio: 'ignore' });
+    child.on('exit', (code) => resolve(code === 0));
+    child.on('error', () => resolve(false));
+  });
+}
+
+async function printCliStatus() {
+  const [hasClaude, hasCodex] = await Promise.all([
+    probeCli('claude'),
+    probeCli('codex'),
+  ]);
+  console.log('[agent] Available CLIs:');
+  console.log(
+    `  claude:  ${hasClaude ? 'installed' : 'NOT installed (npm install -g @anthropic-ai/claude-code, then run `claude` to sign in)'}`,
+  );
+  console.log(
+    `  codex:   ${hasCodex ? 'installed' : 'NOT installed (optional — npm install -g @openai/codex)'}`,
+  );
+  console.log(
+    '[agent] Leave this window open while you use the studio. Ctrl+C to stop.',
+  );
+}
+
 channel.subscribe((status) => {
   if (status === 'SUBSCRIBED') {
     console.log(`[agent] Connected as ${host} on channel ${channelName}.`);
     announce();
     setInterval(announce, 25_000);
+    printCliStatus();
   } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
     console.error(`[agent] Channel ${status.toLowerCase()}, retrying in 3s…`);
     setTimeout(() => channel.subscribe(), 3000);

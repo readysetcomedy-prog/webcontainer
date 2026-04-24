@@ -23,8 +23,8 @@ export default function Onboarding({
     },
     {
       done: hasAgent,
-      title: 'Install the local agent',
-      desc: 'Optional but powerful. Click "Agent" in the toolbar and paste the npx command into your laptop\'s terminal. Unlocks chat with Claude/Codex on your subscription, local dev server, and native builds.',
+      title: 'Install Claude Code + the local agent',
+      desc: 'Optional but powerful. One-time: npm install -g @anthropic-ai/claude-code, then claude (to sign in once). Then click "Agent" in the toolbar for the getxsite-agent command — leave it running in a terminal. Unlocks chat with Claude on your subscription, local dev server, and native builds.',
     },
     {
       done: hasNetlify,
