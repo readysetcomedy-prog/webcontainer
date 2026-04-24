@@ -1880,6 +1880,28 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+.agent-path-status {
+  font-size: 11px;
+  padding: 2px 4px;
+  font-family: ui-monospace, monospace;
+}
+
+.agent-path-status-idle {
+  color: var(--fg-dim);
+}
+
+.agent-path-status-checking {
+  color: var(--fg-dim);
+}
+
+.agent-path-status-exists {
+  color: var(--ok);
+}
+
+.agent-path-status-missing {
+  color: #f5c76e;
+}
+
 .machines-list {
   margin-top: 4px;
   font-size: 11px;

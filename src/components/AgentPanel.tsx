@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentInfo, AgentClient } from '../lib/agentClient';
 import type { Project } from '../lib/projects';
 
@@ -37,12 +37,45 @@ export default function AgentPanel({
   const [savingPath, setSavingPath] = useState(false);
   const [pathInfo, setPathInfo] = useState<string | null>(null);
   const [pathErr, setPathErr] = useState<string | null>(null);
+  const [pathStatus, setPathStatus] = useState<
+    'idle' | 'checking' | 'exists' | 'missing'
+  >('idle');
+  const probeToken = useRef(0);
 
   useEffect(() => {
     setLocalPath(initialPath ?? '');
     setPathInfo(null);
     setPathErr(null);
   }, [activeProject?.id, machineKey, initialPath]);
+
+  // Live existence probe: every time the user stops typing for 400ms,
+  // check whether the path exists on disk via the agent.
+  useEffect(() => {
+    if (!agent || !agentInfo) {
+      setPathStatus('idle');
+      return;
+    }
+    const trimmed = localPath.trim();
+    if (!trimmed) {
+      setPathStatus('idle');
+      return;
+    }
+    const token = ++probeToken.current;
+    setPathStatus('checking');
+    const t = setTimeout(() => {
+      agent
+        .exists(trimmed)
+        .then((r) => {
+          if (probeToken.current !== token) return;
+          setPathStatus(r.exists ? 'exists' : 'missing');
+        })
+        .catch(() => {
+          if (probeToken.current !== token) return;
+          setPathStatus('idle');
+        });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [agent, agentInfo, localPath]);
 
   const installCmd = 'npm install -g @getxsite/agent';
   const runCmd = `getxsite-agent --user-id ${userId}`;
@@ -65,9 +98,9 @@ export default function AgentPanel({
     setPathInfo(null);
     setPathErr(null);
     try {
+      const check = await agent.exists(trimmed);
       if (cloneIfMissing) {
-        const exists = await agent.exists(trimmed);
-        if (!exists.exists) {
+        if (!check.exists) {
           setPathInfo('cloning…');
           await agent.clone(
             `https://github.com/${activeProject.owner}/${activeProject.repo}.git`,
@@ -77,9 +110,19 @@ export default function AgentPanel({
         } else {
           setPathInfo('using existing folder');
         }
+      } else if (!check.exists) {
+        const ok = window.confirm(
+          `That folder doesn't exist on ${machineKey ?? 'this machine'}:\n\n${trimmed}\n\nSave it anyway? The studio won't be able to read files until the folder exists. Usually you want "Clone here & save" instead.`,
+        );
+        if (!ok) {
+          setSavingPath(false);
+          return;
+        }
+        setPathInfo('saved (folder does not exist yet)');
       }
       await onSetLocalPath(trimmed);
       setPathInfo((p) => (p ? `${p} · saved` : 'saved'));
+      setPathStatus(check.exists ? 'exists' : 'missing');
     } catch (e) {
       setPathErr((e as Error).message);
     } finally {
@@ -203,20 +246,37 @@ export default function AgentPanel({
             spellCheck={false}
             className="agent-path-input"
           />
+          <div className={`agent-path-status agent-path-status-${pathStatus}`}>
+            {pathStatus === 'checking' && '⟳ Checking path…'}
+            {pathStatus === 'exists' && '✓ Folder exists on disk'}
+            {pathStatus === 'missing' && '✗ Folder not found on disk (use "Clone here & save" to create it)'}
+            {pathStatus === 'idle' && agentInfo && 'Type a path — we\'ll verify it against your laptop live'}
+            {pathStatus === 'idle' && !agentInfo && 'Start the agent first to verify paths'}
+          </div>
           {pathErr && <div className="error-text">{pathErr}</div>}
           {pathInfo && <div className="login-info">{pathInfo}</div>}
           <div className="popover-actions">
             <button
               disabled={!agentInfo || !localPath.trim() || savingPath}
               onClick={() => savePath(false)}
+              title="Register this path — use when the folder already exists"
             >
-              Save path
+              Use this folder
             </button>
             <button
               className="primary"
-              disabled={!agentInfo || !localPath.trim() || savingPath}
+              disabled={
+                !agentInfo ||
+                !localPath.trim() ||
+                savingPath ||
+                pathStatus === 'exists'
+              }
               onClick={() => savePath(true)}
-              title="Clone the repo into this folder if it doesn't exist yet, then save"
+              title={
+                pathStatus === 'exists'
+                  ? "Folder already exists — use \"Use this folder\" instead"
+                  : "Clone the repo into this folder, then save"
+              }
             >
               Clone here &amp; save
             </button>
