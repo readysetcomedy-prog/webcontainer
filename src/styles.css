@@ -1503,6 +1503,43 @@ button.primary:hover:not(:disabled) {
   display: inline-block;
 }
 
+.bottom-tabs-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--accent);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.bottom-tabs-status-spin {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: status-spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bottom-tabs-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .bottom-tab-body {
   min-height: 0;
   overflow: hidden;

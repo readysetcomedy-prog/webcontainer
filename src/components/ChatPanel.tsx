@@ -36,6 +36,7 @@ export interface ChatPanelProps {
   onSelectModel: (id: string) => void;
   onAddModel: () => void;
   onManageModels: () => void;
+  onStatusChange?: (status: string | null) => void;
 }
 
 export default function ChatPanel({
@@ -48,6 +49,7 @@ export default function ChatPanel({
   onSelectModel,
   onAddModel,
   onManageModels,
+  onStatusChange,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -118,6 +120,7 @@ export default function ChatPanel({
                 { ...last, activity: [...(last.activity ?? []), ...activity] },
               ];
             });
+            if (onStatusChange) onStatusChange(activity[activity.length - 1]);
           }
           if (errored) {
             setMessages((prev) => {
@@ -177,6 +180,7 @@ export default function ChatPanel({
         activeRunRef.current = null;
         parserRef.current = null;
         prevTextRef.current = '';
+        if (onStatusChange) onStatusChange(null);
       }
     });
     return off;
@@ -233,6 +237,7 @@ export default function ChatPanel({
     parserRef.current = tracking ? makeParser() : null;
     prevTextRef.current = '';
     setManualHeight(null);
+    if (onStatusChange) onStatusChange('Thinking…');
     agent.exec({ id: runId, command: selected.cli, args: runArgs, cwd, stdin });
   };
 

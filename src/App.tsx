@@ -69,6 +69,7 @@ export default function App() {
   const [agentInfo, setAgentInfoState] = useState<AgentInfo | null>(null);
   const agentRef = useRef<AgentClient | null>(null);
   const [bottomTab, setBottomTab] = useState<'terminal' | 'chat'>('terminal');
+  const [chatStatus, setChatStatus] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => localStorage.getItem('onboardingDismissed') === '1',
@@ -1335,6 +1336,14 @@ export default function App() {
                     Chat
                     {agentInfo && <span className="bottom-tab-dot" />}
                   </button>
+                  {chatStatus && (
+                    <div className="bottom-tabs-status">
+                      <span className="bottom-tabs-status-spin" />
+                      <span className="bottom-tabs-status-text">
+                        {chatStatus}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="bottom-tab-body">
                   <div
@@ -1359,6 +1368,7 @@ export default function App() {
                       onSelectModel={selectModel}
                       onAddModel={() => setModelModal({ kind: 'new' })}
                       onManageModels={() => setSettingsOpen(true)}
+                      onStatusChange={setChatStatus}
                     />
                   </div>
                 </div>
