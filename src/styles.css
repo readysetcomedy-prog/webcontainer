@@ -1224,6 +1224,71 @@ button.primary:hover:not(:disabled) {
   overflow: hidden;
 }
 
+.editor-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.editor-follow-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--fg-dim);
+  flex: 0 0 auto;
+}
+
+.editor-follow-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.editor-follow-toggle input {
+  margin: 0;
+}
+
+.editor-follow-path {
+  font-family: ui-monospace, monospace;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.editor-flash-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.editor-flash-host.flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  animation: editor-flash 600ms ease-out forwards;
+}
+
+@keyframes editor-flash {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .editor-empty {
   padding: 20px;
   color: var(--fg-dim);

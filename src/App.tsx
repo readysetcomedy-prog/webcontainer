@@ -761,6 +761,9 @@ export default function App() {
     [activeProject, agentInfo, log],
   );
 
+  const [followEdits, setFollowEdits] = useState(true);
+  const [editorFlashKey, setEditorFlashKey] = useState(0);
+
   useEffect(() => {
     if (!agentMode || !currentLocalPath || !activeProject) return;
     const a = agentRef.current;
@@ -769,13 +772,12 @@ export default function App() {
     const watchId = `proj-${activeProject.id}`;
     const off = a.watchStart(watchId, path, async (changes) => {
       try {
+        const normalized = changes.map((c) => c.replace(/\\/g, '/'));
         const { entries } = await a.list(path, true);
         const fileSet = entries.filter((e) => !e.isDir).map((e) => e.path);
         setFiles((prev) => {
           const prevByPath = new Map(prev.map((f) => [f.path, f]));
-          const changedSet = new Set(
-            changes.map((c) => c.replace(/\\/g, '/')),
-          );
+          const changedSet = new Set(normalized);
           return fileSet.map((p) => {
             const existing = prevByPath.get(p);
             if (!existing) return { path: p, content: '' };
@@ -785,9 +787,25 @@ export default function App() {
         });
         setDirtyPaths((prev) => {
           const next = new Set(prev);
-          for (const c of changes) next.delete(c.replace(/\\/g, '/'));
+          for (const c of normalized) next.delete(c);
           return next;
         });
+        // Auto-follow Claude's latest edit so the user sees it live
+        if (followEdits) {
+          const codeChange = normalized.find((c) =>
+            /\.(tsx?|jsx?|html?|css|scss|md|json|ya?ml|toml|sql|py|rb|go|rs|java|kt|swift|c|cpp|hpp?|sh|env|php|lua)$/i.test(
+              c,
+            ),
+          );
+          if (codeChange && fileSet.includes(codeChange)) {
+            setActivePath(codeChange);
+            setEditorFlashKey((k) => k + 1);
+          } else if (normalized.some((c) => c === activePath)) {
+            setEditorFlashKey((k) => k + 1);
+          }
+        } else if (normalized.some((c) => c === activePath)) {
+          setEditorFlashKey((k) => k + 1);
+        }
         notify(
           'info',
           `${changes.length} file${changes.length === 1 ? '' : 's'} changed on disk`,
@@ -800,7 +818,7 @@ export default function App() {
     return () => {
       off();
     };
-  }, [agentMode, activeProject, currentLocalPath, log, notify]);
+  }, [agentMode, activeProject, currentLocalPath, log, notify, followEdits, activePath]);
 
   const buildExpo = useCallback(
     (platform: 'ios' | 'android') => {
@@ -1265,16 +1283,40 @@ export default function App() {
               className="editor-pane"
               data-tour="editor-pane"
             >
-              <CodeEditor
-                path={activeFile?.path ?? null}
-                value={
-                  activeFile && typeof activeFile.content === 'string'
-                    ? activeFile.content
-                    : ''
-                }
-                onChange={updateActiveFile}
-                binary={activeFileIsBinary}
-              />
+              <div className="editor-wrap">
+                {agentMode && (
+                  <div className="editor-follow-bar">
+                    <label className="editor-follow-toggle">
+                      <input
+                        type="checkbox"
+                        checked={followEdits}
+                        onChange={(e) => setFollowEdits(e.target.checked)}
+                      />
+                      <span>Follow Claude's edits</span>
+                    </label>
+                    {activeFile && (
+                      <span className="editor-follow-path">
+                        {activeFile.path}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div
+                  key={editorFlashKey}
+                  className={`editor-flash-host ${editorFlashKey ? 'flash' : ''}`}
+                >
+                  <CodeEditor
+                    path={activeFile?.path ?? null}
+                    value={
+                      activeFile && typeof activeFile.content === 'string'
+                        ? activeFile.content
+                        : ''
+                    }
+                    onChange={updateActiveFile}
+                    binary={activeFileIsBinary}
+                  />
+                </div>
+              </div>
             </Panel>
             <Separator className="resize-y" />
             <Panel defaultSize={32} minSize={12}>
