@@ -29,7 +29,7 @@ export default function AgentPanel({
     setPathErr(null);
   }, [activeProject?.id]);
 
-  const cmd = `GETXSITE_USER_ID=${userId} npx -y @getxsite/agent`;
+  const cmd = `npx -y @getxsite/agent --user-id ${userId}`;
 
   const copy = async (text: string, kind: 'cmd' | 'id') => {
     try {
