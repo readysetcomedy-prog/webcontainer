@@ -6,6 +6,19 @@ import { argv, env, exit } from 'node:process';
 import { promises as fs, watch as fsWatch } from 'node:fs';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 
+function expandHome(p) {
+  if (typeof p !== 'string') return p;
+  if (p === '~') return home;
+  if (p.startsWith('~/') || p.startsWith('~\\')) {
+    return join(home, p.slice(2));
+  }
+  return p;
+}
+
+function resolvePath(p) {
+  return resolve(expandHome(p));
+}
+
 const SUPABASE_URL =
   env.GETXSITE_SUPABASE_URL || 'https://swbrewprhjmujomqtdpc.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -82,7 +95,7 @@ function exec(req) {
   let child;
   try {
     child = spawn(command, args, {
-      cwd: cwd || env.HOME || env.USERPROFILE,
+      cwd: expandHome(cwd) || home,
       env: { ...env },
       stdio: [typeof stdin === 'string' ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
@@ -124,7 +137,7 @@ function killProc(req) {
 }
 
 async function listDir({ path, recursive }) {
-  const root = resolve(path);
+  const root = resolvePath(path);
   if (recursive) {
     const out = [];
     await walk(root, root, out);
@@ -161,18 +174,18 @@ async function walk(root, dir, out) {
 }
 
 async function readFile({ path }) {
-  const buf = await fs.readFile(resolve(path));
+  const buf = await fs.readFile(resolvePath(path));
   return { content: buf.toString('utf-8') };
 }
 
 async function writeFile({ path, content }) {
-  await fs.mkdir(resolve(path).replace(/\/[^/]+$/, ''), { recursive: true });
-  await fs.writeFile(resolve(path), content, 'utf-8');
+  await fs.mkdir(resolvePath(path).replace(/\/[^/]+$/, ''), { recursive: true });
+  await fs.writeFile(resolvePath(path), content, 'utf-8');
   return { ok: true };
 }
 
 function startWatch({ id, path }) {
-  if (!isAbsolute(path)) path = resolve(path);
+  if (!isAbsolute(path)) path = resolvePath(path);
   if (watchers.has(id)) {
     watchers.get(id).close();
   }
@@ -211,8 +224,9 @@ function stopWatch({ id }) {
 }
 
 async function gitClone({ url, dest }) {
+  const resolvedDest = resolvePath(dest);
   return await new Promise((resolve, reject) => {
-    const child = spawn('git', ['clone', url, dest], { stdio: 'pipe' });
+    const child = spawn('git', ['clone', url, resolvedDest], { stdio: 'pipe' });
     let stderr = '';
     child.stderr.on('data', (d) => (stderr += d.toString('utf-8')));
     child.on('exit', (code) => {
@@ -225,7 +239,7 @@ async function gitClone({ url, dest }) {
 
 async function pathExists({ path }) {
   try {
-    await fs.access(resolve(path));
+    await fs.access(resolvePath(path));
     return { exists: true };
   } catch {
     return { exists: false };
@@ -248,7 +262,7 @@ function runGit(cwd, args) {
 }
 
 async function savepoint({ path }) {
-  const root = resolve(path);
+  const root = resolvePath(path);
   const headSha = await runGit(root, ['rev-parse', 'HEAD']);
   let stashSha = '';
   try {
@@ -263,7 +277,7 @@ async function savepoint({ path }) {
 }
 
 async function revert({ path, headSha, stashSha }) {
-  const root = resolve(path);
+  const root = resolvePath(path);
   await runGit(root, ['reset', '--hard', headSha]);
   await runGit(root, ['clean', '-fd']);
   if (stashSha) {
