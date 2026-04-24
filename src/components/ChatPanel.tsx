@@ -133,10 +133,23 @@ export default function ChatPanel({
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (!last || last.role !== 'assistant') return prev;
-          const finalText =
-            evt.code === 0
-              ? last.text || '(empty response)'
-              : `${last.text}\n\n[exited with code ${evt.code}${evt.error ? `: ${evt.error}` : ''}]`;
+          let finalText: string;
+          if (evt.code === 0) {
+            finalText = last.text || '(empty response)';
+          } else {
+            const cliName = selected?.cli ?? 'the CLI';
+            const isEnoent = (evt.error ?? '').includes('ENOENT');
+            const hint = isEnoent
+              ? `\n\n[${cliName} isn't installed (or not on PATH) on your laptop. Install it, then try again.` +
+                (cliName === 'claude'
+                  ? '\nOn most systems:  npm install -g @anthropic-ai/claude-code\nThen:  claude   (to sign in once)'
+                  : cliName === 'codex'
+                  ? '\nOn most systems:  npm install -g @openai/codex\nThen:  codex login'
+                  : '') +
+                ']'
+              : `\n\n[${cliName} exited with code ${evt.code}${evt.error ? `: ${evt.error}` : ''}]`;
+            finalText = `${last.text}${hint}`;
+          }
           return [
             ...prev.slice(0, -1),
             { ...last, text: finalText, pending: false },
