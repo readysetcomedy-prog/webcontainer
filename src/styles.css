@@ -1685,6 +1685,49 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+.actions-panel {
+  width: 440px;
+}
+
+.actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 10px;
+  text-align: left;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.action-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.action-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.action-desc {
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, monospace;
+}
+
 .log {
   white-space: pre-wrap;
   line-height: 1.4;

@@ -368,6 +368,104 @@ export default function App() {
     devProcRef.current?.kill();
   }, []);
 
+  const [localDevId, setLocalDevId] = useState<string | null>(null);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const localDevIdRef = useRef<string | null>(null);
+
+  const stopLocalDev = useCallback(() => {
+    const a = agentRef.current;
+    if (!a || !localDevIdRef.current) return;
+    a.kill(localDevIdRef.current);
+  }, []);
+
+  const runLocalDev = useCallback(async () => {
+    const a = agentRef.current;
+    const project = activeProject;
+    if (!a || !project?.localPath) {
+      log('Local Run needs the agent + a project local path.', 'err');
+      return;
+    }
+    stopLocalDev();
+    setLocalPreviewUrl(null);
+    setRunning(true);
+
+    const root = project.localPath.replace(/\/$/, '');
+    let scripts: Record<string, string> = {};
+    try {
+      const { content } = await a.readFile(`${root}/package.json`);
+      scripts = JSON.parse(content).scripts ?? {};
+    } catch (e) {
+      log(`Could not read package.json: ${(e as Error).message}`, 'err');
+    }
+    const startScript = scripts.dev
+      ? 'dev'
+      : scripts.start
+      ? 'start'
+      : scripts.serve
+      ? 'serve'
+      : null;
+
+    const hasNodeModules = (await a.exists(`${root}/node_modules`)).exists;
+    if (!hasNodeModules) {
+      setStatus('installing dependencies on laptop…');
+      log('$ npm install (on laptop)', 'info');
+      const installId = `inst_${Date.now().toString(36)}`;
+      await new Promise<void>((resolve) => {
+        const off = a.onEvent((evt) => {
+          if (evt.type === 'output' && evt.id === installId) {
+            log(evt.data, evt.stream === 'stderr' ? 'err' : 'out');
+          } else if (evt.type === 'exit' && evt.id === installId) {
+            off();
+            resolve();
+          }
+        });
+        a.exec({ id: installId, command: 'npm', args: ['install'], cwd: root });
+      });
+    }
+
+    if (!startScript) {
+      log('No dev/start/serve script in package.json.', 'err');
+      setRunning(false);
+      setStatus('no start script');
+      return;
+    }
+
+    const id = `dev_${Date.now().toString(36)}`;
+    localDevIdRef.current = id;
+    setLocalDevId(id);
+    setStatus(`starting on laptop (npm run ${startScript})…`);
+    log(`$ npm run ${startScript} (on laptop)`, 'info');
+    const urlRe = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?(?:\/[^\s'"]*)?/;
+    const off = a.onEvent((evt) => {
+      if (evt.type === 'output' && evt.id === id) {
+        log(evt.data, evt.stream === 'stderr' ? 'err' : 'out');
+        const m = evt.data.match(urlRe);
+        if (m && !localPreviewUrl) {
+          const url = m[0]
+            .replace('0.0.0.0', 'localhost')
+            .replace('127.0.0.1', 'localhost');
+          setLocalPreviewUrl(url);
+          setStatus(`local server ready: ${url}`);
+          notify('success', `Dev server ready on your laptop`, {
+            url,
+            urlLabel: 'Open in new tab',
+          });
+        }
+      } else if (evt.type === 'exit' && evt.id === id) {
+        off();
+        log(`local dev server exited (${evt.code})`, 'info');
+        if (localDevIdRef.current === id) {
+          localDevIdRef.current = null;
+          setLocalDevId(null);
+          setLocalPreviewUrl(null);
+          setRunning(false);
+          setStatus('stopped');
+        }
+      }
+    });
+    a.exec({ id, command: 'npm', args: ['run', startScript], cwd: root });
+  }, [activeProject, localPreviewUrl, log, notify, stopLocalDev]);
+
   const loadFromAgent = useCallback(
     async (project: Project) => {
       const a = agentRef.current;
@@ -393,6 +491,8 @@ export default function App() {
       if (!c || !session) return;
       try {
         stopDev();
+        stopLocalDev();
+        setLocalPreviewUrl(null);
 
         const repoKey = `${ref.owner}/${ref.repo}`;
         const branchUsed = ref.ref ?? 'main';
@@ -494,7 +594,7 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [agentInfo, ghToken, loadFromAgent, log, notify, persistSecret, runDev, session, stopDev],
+    [agentInfo, ghToken, loadFromAgent, log, notify, persistSecret, runDev, session, stopDev, stopLocalDev],
   );
 
   const openUrl = useCallback(
@@ -965,8 +1065,8 @@ export default function App() {
         onDisconnect={disconnectGitHub}
         onSelectBranch={selectBranch}
         onOpenUrl={openUrl}
-        onRun={() => runDev()}
-        onStop={stopDev}
+        onRun={() => (agentMode ? runLocalDev() : runDev())}
+        onStop={() => (agentMode ? stopLocalDev() : stopDev())}
         onDeploy={deploy}
         repoKey={currentRepoKey}
         envContent={getStoredEnv()}
@@ -989,6 +1089,8 @@ export default function App() {
         activeProject={activeProject}
         onSetLocalPath={setProjectLocalPath}
         onBuildExpo={buildExpo}
+        log={log}
+        notify={notify}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">
@@ -1058,8 +1160,16 @@ export default function App() {
         <Separator className="resize-x" />
         <Panel defaultSize={40} minSize={20}>
           <Preview
-            url={agentMode ? null : previewUrl}
-            status={agentMode ? 'local mode — preview runs on your laptop' : status}
+            url={agentMode ? localPreviewUrl : previewUrl}
+            status={
+              agentMode
+                ? localPreviewUrl
+                  ? `local server: ${localPreviewUrl}`
+                  : localDevId
+                  ? 'starting local dev server…'
+                  : 'local mode — press Run to start dev server'
+                : status
+            }
           />
         </Panel>
       </Group>

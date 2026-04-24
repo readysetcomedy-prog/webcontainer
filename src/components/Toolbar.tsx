@@ -3,6 +3,7 @@ import type { GhUser } from '../lib/github';
 import GitHubPanel from './GitHubPanel';
 import EnvPanel from './EnvPanel';
 import AgentPanel from './AgentPanel';
+import ActionsPanel from './ActionsPanel';
 import type { AgentClient, AgentInfo } from '../lib/agentClient';
 import type { Project } from '../lib/projects';
 
@@ -39,6 +40,8 @@ export interface ToolbarProps {
   activeProject: Project | null;
   onSetLocalPath: (path: string) => Promise<void>;
   onBuildExpo: (platform: 'ios' | 'android') => void;
+  log: (text: string, kind?: 'info' | 'err' | 'out') => void;
+  notify: (kind: 'info' | 'success' | 'error', message: string) => void;
 }
 
 export default function Toolbar({
@@ -74,11 +77,14 @@ export default function Toolbar({
   activeProject,
   onSetLocalPath,
   onBuildExpo,
+  log,
+  notify,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [siteId, setSiteId] = useState(defaultNetlifySiteId);
 
   useEffect(() => {
@@ -189,6 +195,17 @@ export default function Toolbar({
           </>
         )}
         <button
+          onClick={() => setActionsOpen((v) => !v)}
+          disabled={!agentInfo || !activeProject?.localPath}
+          title={
+            agentInfo && activeProject?.localPath
+              ? 'Quick actions (test, lint, build…)'
+              : 'Actions need agent + local path'
+          }
+        >
+          Actions
+        </button>
+        <button
           onClick={() => setAgentOpen((v) => !v)}
           title={
             agentInfo ? `Local agent: ${agentInfo.host}` : 'Local agent setup'
@@ -246,6 +263,16 @@ export default function Toolbar({
           agent={agent}
           activeProject={activeProject}
           onSetLocalPath={onSetLocalPath}
+        />
+      )}
+      {actionsOpen && (
+        <ActionsPanel
+          agent={agent}
+          agentInfo={agentInfo}
+          activeProject={activeProject}
+          log={log}
+          notify={notify}
+          onClose={() => setActionsOpen(false)}
         />
       )}
       {deployOpen && (
