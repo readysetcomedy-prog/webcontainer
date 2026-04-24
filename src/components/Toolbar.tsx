@@ -44,6 +44,7 @@ export interface ToolbarProps {
   log: (text: string, kind?: 'info' | 'err' | 'out') => void;
   notify: (kind: 'info' | 'success' | 'error', message: string) => void;
   onOpenSettings: () => void;
+  onStartTour: () => void;
   currentBranch: string | null;
 }
 
@@ -83,6 +84,7 @@ export default function Toolbar({
   log,
   notify,
   onOpenSettings,
+  onStartTour,
   currentBranch,
 }: ToolbarProps) {
   const [ghOpen, setGhOpen] = useState(false);
@@ -100,7 +102,7 @@ export default function Toolbar({
 
   return (
     <div className="toolbar">
-      <div className="brand">
+      <div className="brand" data-tour="brand">
         GetXsite.com
         {agentInfo && activeProject?.localPath && (
           <span className="brand-mode" title={`Files on ${agentInfo.host}: ${activeProject.localPath}`}>
@@ -109,20 +111,23 @@ export default function Toolbar({
         )}
       </div>
       {activeProject && token && currentBranch && (
-        <BranchPicker
-          token={token}
-          owner={activeProject.owner}
-          repo={activeProject.repo}
-          branch={currentBranch}
-          onPick={(b) =>
-            onSelectBranch(activeProject.owner, activeProject.repo, b)
-          }
-        />
+        <div data-tour="branch-picker">
+          <BranchPicker
+            token={token}
+            owner={activeProject.owner}
+            repo={activeProject.repo}
+            branch={currentBranch}
+            onPick={(b) =>
+              onSelectBranch(activeProject.owner, activeProject.repo, b)
+            }
+          />
+        </div>
       )}
       <div className="toolbar-actions">
         {connected ? (
           <button
             className="user-chip"
+            data-tour="btn-github"
             onClick={() => setGhOpen((v) => !v)}
             disabled={booting}
             title="Browse repos and branches"
@@ -132,11 +137,16 @@ export default function Toolbar({
             <span className="chevron">▾</span>
           </button>
         ) : (
-          <button onClick={() => setGhOpen((v) => !v)} disabled={booting}>
+          <button
+            data-tour="btn-github"
+            onClick={() => setGhOpen((v) => !v)}
+            disabled={booting}
+          >
             Connect GitHub
           </button>
         )}
         <button
+          data-tour="btn-env"
           onClick={() => setEnvOpen((v) => !v)}
           disabled={booting || !repoKey}
           title={
@@ -147,6 +157,7 @@ export default function Toolbar({
           {envContent && <span className="dot" />}
         </button>
         <button
+          data-tour="btn-pull"
           onClick={onPullFromGitHub}
           disabled={booting || !repoKey}
           title={
@@ -158,6 +169,7 @@ export default function Toolbar({
           Pull
         </button>
         <button
+          data-tour="btn-push"
           onClick={onPushToGitHub}
           disabled={booting || !repoKey || !token || dirtyCount === 0}
           title={
@@ -174,6 +186,7 @@ export default function Toolbar({
           {dirtyCount > 0 && <span className="count-badge">{dirtyCount}</span>}
         </button>
         <button
+          data-tour="btn-download"
           onClick={onDownload}
           disabled={booting || !canDownload}
           title={
@@ -191,7 +204,11 @@ export default function Toolbar({
             Run
           </button>
         )}
-        <button onClick={() => setDeployOpen((v) => !v)} disabled={booting}>
+        <button
+          data-tour="btn-deploy"
+          onClick={() => setDeployOpen((v) => !v)}
+          disabled={booting}
+        >
           Deploy to Netlify
         </button>
         {agentInfo && activeProject?.localPath && (
@@ -211,6 +228,7 @@ export default function Toolbar({
           </>
         )}
         <button
+          data-tour="btn-actions"
           onClick={() => setActionsOpen((v) => !v)}
           disabled={!agentInfo || !activeProject?.localPath}
           title={
@@ -222,6 +240,7 @@ export default function Toolbar({
           Actions
         </button>
         <button
+          data-tour="btn-agent"
           onClick={() => setAgentOpen((v) => !v)}
           title={
             agentInfo ? `Local agent: ${agentInfo.host}` : 'Local agent setup'
@@ -233,6 +252,14 @@ export default function Toolbar({
           </span>
         </button>
         <button
+          data-tour="btn-tutorial"
+          onClick={onStartTour}
+          title="Take a guided tour of the studio"
+        >
+          Tutorial
+        </button>
+        <button
+          data-tour="btn-settings"
           onClick={onOpenSettings}
           title="Account & token settings"
         >

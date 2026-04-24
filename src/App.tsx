@@ -37,6 +37,8 @@ import ChatPanel from './components/ChatPanel';
 import Onboarding from './components/Onboarding';
 import SettingsModal from './components/SettingsModal';
 import ModelFormModal from './components/ModelFormModal';
+import Tour from './components/Tour';
+import { getTourSteps } from './lib/tourSteps';
 import type { ModelPreset } from './lib/userSecrets';
 import { AgentClient, type AgentInfo } from './lib/agentClient';
 
@@ -78,6 +80,7 @@ export default function App() {
   const [modelModal, setModelModal] = useState<
     { kind: 'new' } | { kind: 'edit'; preset: ModelPreset } | null
   >(null);
+  const [tourOpen, setTourOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -1157,6 +1160,12 @@ export default function App() {
           onClose={() => setModelModal(null)}
         />
       )}
+      {tourOpen && (
+        <Tour
+          steps={getTourSteps({ setBottomTab })}
+          onClose={() => setTourOpen(false)}
+        />
+      )}
     <div className="app">
       {showOnboarding && (
         <Onboarding
@@ -1202,28 +1211,38 @@ export default function App() {
         log={log}
         notify={notify}
         onOpenSettings={() => setSettingsOpen(true)}
+        onStartTour={() => setTourOpen(true)}
         currentBranch={currentBranch}
       />
       <Group orientation="horizontal" className="main">
         <Panel defaultSize={18} minSize={10} className="sidebar">
-          <ProjectsSection
-            projects={projects}
-            activeId={activeProjectId}
-            canSave={!!currentRepoKey && !!currentBranch}
-            currentRepoKey={currentRepoKey}
-            currentBranch={currentBranch}
-            onOpen={openProject}
-            onSaveCurrent={saveCurrentProject}
-            onRename={renameProject}
-            onDelete={deleteProject}
-          />
+          <div data-tour="projects-section">
+            <ProjectsSection
+              projects={projects}
+              activeId={activeProjectId}
+              canSave={!!currentRepoKey && !!currentBranch}
+              currentRepoKey={currentRepoKey}
+              currentBranch={currentBranch}
+              onOpen={openProject}
+              onSaveCurrent={saveCurrentProject}
+              onRename={renameProject}
+              onDelete={deleteProject}
+            />
+          </div>
           <div className="sidebar-divider">Files</div>
-          <FileTree files={files} activePath={activePath} onSelect={setActivePath} />
+          <div data-tour="file-tree">
+            <FileTree files={files} activePath={activePath} onSelect={setActivePath} />
+          </div>
         </Panel>
         <Separator className="resize-x" />
         <Panel defaultSize={42} minSize={20}>
           <Group orientation="vertical">
-            <Panel defaultSize={70} minSize={20} className="editor-pane">
+            <Panel
+              defaultSize={70}
+              minSize={20}
+              className="editor-pane"
+              data-tour="editor-pane"
+            >
               <CodeEditor
                 path={activeFile?.path ?? null}
                 value={
@@ -1238,7 +1257,7 @@ export default function App() {
             <Separator className="resize-y" />
             <Panel defaultSize={32} minSize={12}>
               <div className="bottom-pane">
-                <div className="bottom-tabs">
+                <div className="bottom-tabs" data-tour="bottom-tabs">
                   <button
                     className={`bottom-tab ${bottomTab === 'terminal' ? 'active' : ''}`}
                     onClick={() => setBottomTab('terminal')}
@@ -1253,7 +1272,10 @@ export default function App() {
                     {agentInfo && <span className="bottom-tab-dot" />}
                   </button>
                 </div>
-                <div className="bottom-tab-body">
+                <div
+                  className="bottom-tab-body"
+                  data-tour={bottomTab === 'chat' ? 'chat-panel' : undefined}
+                >
                   {bottomTab === 'terminal' ? (
                     <Terminal logs={logs} />
                   ) : (
@@ -1275,7 +1297,7 @@ export default function App() {
           </Group>
         </Panel>
         <Separator className="resize-x" />
-        <Panel defaultSize={40} minSize={20}>
+        <Panel defaultSize={40} minSize={20} data-tour="preview-pane">
           <Preview
             url={agentMode ? localPreviewUrl : previewUrl}
             status={
