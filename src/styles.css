@@ -1640,9 +1640,11 @@ button.primary:hover:not(:disabled) {
   padding: 8px 10px;
   font-size: 13px;
   font-family: inherit;
-  resize: vertical;
+  resize: none;
   min-height: 44px;
   max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.45;
 }
 
 .chat-input-row textarea:focus {

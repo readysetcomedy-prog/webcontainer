@@ -224,6 +224,14 @@ export default function ChatPanel({
   };
 
   const [now, setNow] = useState(() => Date.now());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const natural = ta.scrollHeight;
+    ta.style.height = Math.min(Math.max(natural, 44), 400) + 'px';
+  }, [input]);
   useEffect(() => {
     const hasPending = messages.some((m) => m.pending);
     if (!hasPending) return;
@@ -373,6 +381,7 @@ export default function ChatPanel({
       </div>
       <div className="chat-input-row">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -388,7 +397,7 @@ export default function ChatPanel({
               ? 'Add a model first'
               : 'Connect the local agent to chat'
           }
-          rows={2}
+          rows={1}
           disabled={!connected || !selected || !!activeRunRef.current}
         />
         {activeRunRef.current ? (
