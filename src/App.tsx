@@ -442,119 +442,41 @@ export default function App() {
     devProcRef.current?.kill();
   }, []);
 
-  const [localDevId, setLocalDevId] = useState<string | null>(null);
-  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
-  const localDevIdRef = useRef<string | null>(null);
-
-  const stopLocalDev = useCallback(() => {
-    const a = agentRef.current;
-    if (!a || !localDevIdRef.current) return;
-    a.kill(localDevIdRef.current);
-  }, []);
-
-  const runLocalDev = useCallback(async () => {
-    const a = agentRef.current;
-    const project = activeProject;
-    const root = currentLocalPath;
-    if (!a || !project || !root) {
-      log('Local Run needs the agent + a project local path.', 'err');
-      return;
-    }
-    stopLocalDev();
-    setLocalPreviewUrl(null);
-    setRunning(true);
-
-    let scripts: Record<string, string> = {};
-    try {
-      const { content } = await a.readFile(`${root}/package.json`);
-      scripts = JSON.parse(content).scripts ?? {};
-    } catch (e) {
-      log(`Could not read package.json: ${(e as Error).message}`, 'err');
-    }
-    const startScript = scripts.dev
-      ? 'dev'
-      : scripts.start
-      ? 'start'
-      : scripts.serve
-      ? 'serve'
-      : null;
-
-    const hasNodeModules = (await a.exists(`${root}/node_modules`)).exists;
-    if (!hasNodeModules) {
-      setStatus('installing dependencies on laptop…');
-      log('$ npm install (on laptop)', 'info');
-      const installId = `inst_${Date.now().toString(36)}`;
-      await new Promise<void>((resolve) => {
-        const off = a.onEvent((evt) => {
-          if (evt.type === 'output' && evt.id === installId) {
-            log(evt.data, evt.stream === 'stderr' ? 'err' : 'out');
-          } else if (evt.type === 'exit' && evt.id === installId) {
-            off();
-            resolve();
-          }
-        });
-        a.exec({ id: installId, command: 'npm', args: ['install'], cwd: root });
-      });
-    }
-
-    if (!startScript) {
-      log('No dev/start/serve script in package.json.', 'err');
-      setRunning(false);
-      setStatus('no start script');
-      return;
-    }
-
-    const id = `dev_${Date.now().toString(36)}`;
-    localDevIdRef.current = id;
-    setLocalDevId(id);
-    setStatus(`starting on laptop (npm run ${startScript})…`);
-    log(`$ npm run ${startScript} (on laptop)`, 'info');
-    const urlRe = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?(?:\/[^\s'"]*)?/;
-    const off = a.onEvent((evt) => {
-      if (evt.type === 'output' && evt.id === id) {
-        log(evt.data, evt.stream === 'stderr' ? 'err' : 'out');
-        const m = evt.data.match(urlRe);
-        if (m && !localPreviewUrl) {
-          const url = m[0]
-            .replace('0.0.0.0', 'localhost')
-            .replace('127.0.0.1', 'localhost');
-          setLocalPreviewUrl(url);
-          setStatus(`local server ready: ${url}`);
-          notify('success', `Dev server ready on your laptop`, {
-            url,
-            urlLabel: 'Open in new tab',
-          });
-        }
-      } else if (evt.type === 'exit' && evt.id === id) {
-        off();
-        log(`local dev server exited (${evt.code})`, 'info');
-        if (localDevIdRef.current === id) {
-          localDevIdRef.current = null;
-          setLocalDevId(null);
-          setLocalPreviewUrl(null);
-          setRunning(false);
-          setStatus('stopped');
-        }
-      }
-    });
-    a.exec({ id, command: 'npm', args: ['run', startScript], cwd: root });
-  }, [activeProject, currentLocalPath, localPreviewUrl, log, notify, stopLocalDev]);
 
   const loadFromAgent = useCallback(
-    async (path: string) => {
+    async (path: string): Promise<FileEntry[]> => {
       const a = agentRef.current;
-      if (!a || !path) return;
+      if (!a || !path) return [];
       setStatus(`listing ${path}…`);
       const { entries } = await a.list(path, true);
-      const fileEntries: FileEntry[] = entries
-        .filter((e) => !e.isDir)
-        .map((e) => ({ path: e.path, content: '' }));
-      setFiles(fileEntries);
-      setDirtyPaths(new Set());
-      const firstCodeFile = fileEntries.find((f) =>
-        /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
+      const filePaths = entries.filter((e) => !e.isDir).map((e) => e.path);
+      setStatus(`reading ${filePaths.length} files from your laptop…`);
+      const root = path.replace(/\/$/, '');
+      const fileEntries: FileEntry[] = [];
+      const concurrency = 12;
+      let idx = 0;
+      let done = 0;
+      async function worker() {
+        const agent = a!;
+        while (idx < filePaths.length) {
+          const i = idx++;
+          const p = filePaths[i];
+          try {
+            const { content } = await agent.readFile(`${root}/${p}`);
+            fileEntries.push({ path: p, content });
+          } catch {
+            // Skip unreadable (binary, permission, etc.) — preview can survive
+          }
+          done++;
+          if (done % 25 === 0) {
+            setStatus(`reading ${done}/${filePaths.length} files from your laptop…`);
+          }
+        }
+      }
+      await Promise.all(
+        Array.from({ length: Math.min(concurrency, filePaths.length) }, worker),
       );
-      setActivePath(firstCodeFile?.path ?? fileEntries[0]?.path ?? null);
+      return fileEntries;
     },
     [],
   );
@@ -565,8 +487,6 @@ export default function App() {
       if (!c || !session) return;
       try {
         stopDev();
-        stopLocalDev();
-        setLocalPreviewUrl(null);
 
         const repoKey = `${ref.owner}/${ref.repo}`;
         const branchUsed = ref.ref ?? 'main';
@@ -601,35 +521,30 @@ export default function App() {
           : null;
         const useAgent = !!(pathForThisMachine && agentInfo);
 
+        let fetched: FileEntry[];
         if (useAgent) {
-          log(`Loading from local agent: ${pathForThisMachine}`, 'info');
-          try {
-            await loadFromAgent(pathForThisMachine!);
-            setStatus('ready (local agent)');
-            notify(
-              'success',
-              `Loaded ${project.owner}/${project.repo}@${branchUsed} from your local machine`,
-            );
+          log(`Loading from your laptop: ${pathForThisMachine}`, 'info');
+          fetched = await loadFromAgent(pathForThisMachine!);
+          if (fetched.length === 0) {
             log(
-              `Local mode active. Files come from ${pathForThisMachine} on your machine. Use Chat to edit with Claude.`,
-              'info',
+              `No readable files found at ${pathForThisMachine}. Make sure the path is correct.`,
+              'err',
             );
-          } catch (e) {
-            log(`Local listing failed: ${(e as Error).message}`, 'err');
-            notify('error', `Local listing failed: ${(e as Error).message}`);
+            notify('error', `No files found at ${pathForThisMachine}`);
             setStatus('agent load failed');
+            return;
           }
-          return;
+        } else {
+          setStatus(`fetching ${ref.owner}/${ref.repo}…`);
+          log(
+            `Pulling ${ref.owner}/${ref.repo}${ref.ref ? `@${ref.ref}` : ''}`,
+            'info',
+          );
+          fetched = await fetchRepoFiles(ref, ghToken || undefined, (d, t) => {
+            setStatus(`fetching ${d}/${t} files…`);
+          });
         }
 
-        setStatus(`fetching ${ref.owner}/${ref.repo}…`);
-        log(
-          `Pulling ${ref.owner}/${ref.repo}${ref.ref ? `@${ref.ref}` : ''}`,
-          'info',
-        );
-        const fetched = await fetchRepoFiles(ref, ghToken || undefined, (d, t) => {
-          setStatus(`fetching ${d}/${t} files…`);
-        });
         setStatus(`mounting ${fetched.length} files…`);
         await c.mount(filesToTree(fetched));
         setFiles(fetched);
@@ -660,7 +575,9 @@ export default function App() {
         log(`Loaded ${fetched.length} files.`, 'info');
         notify(
           'success',
-          `Pulled ${ref.owner}/${ref.repo}@${branchUsed} (${fetched.length} files)`,
+          useAgent
+            ? `Loaded ${project.owner}/${project.repo}@${branchUsed} from your laptop`
+            : `Pulled ${ref.owner}/${ref.repo}@${branchUsed} (${fetched.length} files)`,
         );
         setStatus('ready');
         await runDev(fetched);
@@ -671,7 +588,7 @@ export default function App() {
         setStatus('pull failed');
       }
     },
-    [agentInfo, ghToken, loadFromAgent, log, notify, persistSecret, runDev, session, stopDev, stopLocalDev],
+    [agentInfo, ghToken, loadFromAgent, log, notify, persistSecret, runDev, session, stopDev],
   );
 
   const openUrl = useCallback(
@@ -768,37 +685,44 @@ export default function App() {
   useEffect(() => {
     if (!agentMode || !currentLocalPath || !activeProject) return;
     const a = agentRef.current;
-    if (!a) return;
+    const c = containerRef.current;
+    if (!a || !c) return;
     const path = currentLocalPath;
     const watchId = `proj-${activeProject.id}`;
     const off = a.watchStart(watchId, path, async (changes) => {
       try {
         const normalized = changes.map((c) => c.replace(/\\/g, '/'));
-        const { entries } = await a.list(path, true);
-        const fileSet = entries.filter((e) => !e.isDir).map((e) => e.path);
+        const root = path.replace(/\/$/, '');
+        // Sync each changed file from disk -> WebContainer so HMR fires.
+        const updated: { path: string; content: string }[] = [];
+        await Promise.all(
+          normalized.map(async (rel) => {
+            try {
+              const { content } = await a.readFile(`${root}/${rel}`);
+              await c.fs.writeFile(`/${rel}`, content);
+              updated.push({ path: rel, content });
+            } catch {
+              // File may have been deleted; ignore so the watcher keeps going.
+            }
+          }),
+        );
         setFiles((prev) => {
-          const prevByPath = new Map(prev.map((f) => [f.path, f]));
-          const changedSet = new Set(normalized);
-          return fileSet.map((p) => {
-            const existing = prevByPath.get(p);
-            if (!existing) return { path: p, content: '' };
-            if (changedSet.has(p)) return { path: p, content: '' };
-            return existing;
-          });
+          const byPath = new Map(prev.map((f) => [f.path, f]));
+          for (const u of updated) byPath.set(u.path, u);
+          return Array.from(byPath.values());
         });
         setDirtyPaths((prev) => {
           const next = new Set(prev);
           for (const c of normalized) next.delete(c);
           return next;
         });
-        // Auto-follow Claude's latest edit so the user sees it live
         if (followEdits) {
           const codeChange = normalized.find((c) =>
             /\.(tsx?|jsx?|html?|css|scss|md|json|ya?ml|toml|sql|py|rb|go|rs|java|kt|swift|c|cpp|hpp?|sh|env|php|lua)$/i.test(
               c,
             ),
           );
-          if (codeChange && fileSet.includes(codeChange)) {
+          if (codeChange) {
             setActivePath(codeChange);
             setEditorFlashKey((k) => k + 1);
           } else if (normalized.some((c) => c === activePath)) {
@@ -809,13 +733,13 @@ export default function App() {
         }
         notify(
           'info',
-          `${changes.length} file${changes.length === 1 ? '' : 's'} changed on disk`,
+          `${changes.length} file${changes.length === 1 ? '' : 's'} synced from disk`,
         );
       } catch (e) {
-        log(`Watcher refresh failed: ${(e as Error).message}`, 'err');
+        log(`Watcher sync failed: ${(e as Error).message}`, 'err');
       }
     });
-    log(`Watching ${path} for changes.`, 'info');
+    log(`Watching ${path} for changes (will sync to preview).`, 'info');
     return () => {
       off();
     };
@@ -1225,8 +1149,8 @@ export default function App() {
         onDisconnect={disconnectGitHub}
         onSelectBranch={selectBranch}
         onOpenUrl={openUrl}
-        onRun={() => (agentMode ? runLocalDev() : runDev())}
-        onStop={() => (agentMode ? stopLocalDev() : stopDev())}
+        onRun={() => runDev()}
+        onStop={stopDev}
         onDeploy={deploy}
         repoKey={currentRepoKey}
         envContent={getStoredEnv()}
@@ -1378,18 +1302,7 @@ export default function App() {
         </Panel>
         <Separator className="resize-x" />
         <Panel defaultSize={40} minSize={20} data-tour="preview-pane">
-          <Preview
-            url={agentMode ? localPreviewUrl : previewUrl}
-            status={
-              agentMode
-                ? localPreviewUrl
-                  ? `local server: ${localPreviewUrl}`
-                  : localDevId
-                  ? 'starting local dev server…'
-                  : 'local mode — press Run to start dev server'
-                : status
-            }
-          />
+          <Preview url={previewUrl} status={status} />
         </Panel>
       </Group>
     </div>
