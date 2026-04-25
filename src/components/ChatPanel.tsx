@@ -206,22 +206,6 @@ export default function ChatPanel({
     const trimmed = input.trim();
     if (!trimmed || !agent || !agentInfo || !selected) return;
     if (activeRunRef.current) return;
-    // Best-effort git savepoint so user can revert if Claude breaks something
-    if (cwd) {
-      try {
-        const snap = await agent.savepoint(cwd);
-        lastSavepointRef.current = {
-          headSha: snap.headSha,
-          stashSha: snap.stashSha,
-          label: trimmed.slice(0, 60),
-        };
-        setHasSavepoint(true);
-      } catch {
-        // Not a git repo, or git failed — silently skip the safety net
-        lastSavepointRef.current = null;
-        setHasSavepoint(false);
-      }
-    }
     const userMsg: ChatMessage = {
       id: newMsgId(),
       role: 'user',
@@ -250,6 +234,24 @@ export default function ChatPanel({
     prevTextRef.current = '';
     setManualHeight(null);
     if (onStatusChange) onStatusChange('Thinking…');
+    // Best-effort git savepoint so user can revert if Claude breaks
+    // something. Run in the background — don't block the chat.
+    if (cwd) {
+      agent
+        .savepoint(cwd)
+        .then((snap) => {
+          lastSavepointRef.current = {
+            headSha: snap.headSha,
+            stashSha: snap.stashSha,
+            label: trimmed.slice(0, 60),
+          };
+          setHasSavepoint(true);
+        })
+        .catch(() => {
+          lastSavepointRef.current = null;
+          setHasSavepoint(false);
+        });
+    }
     agent.exec({ id: runId, command: selected.cli, args: runArgs, cwd, stdin });
   };
 
