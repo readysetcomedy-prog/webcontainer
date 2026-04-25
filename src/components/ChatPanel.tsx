@@ -166,6 +166,15 @@ export default function ChatPanel({
               /No deferred tool marker|exceeds the tail-scan window|stale.*marker|session.*not.*deferred/i.test(
                 stderrSoFar,
               );
+            // API 400 "text content blocks must be non-empty" means
+            // --continue is replaying a turn the API now rejects (usually
+            // an assistant message that contained only a tool_use with an
+            // empty text preamble). The fix is the same as a stale session:
+            // start fresh on the next message.
+            const looksLikeBadHistory =
+              /text content blocks? must be non-empty|invalid_request_error.*messages/i.test(
+                stderrSoFar,
+              );
             const hint = isEnoent
               ? `\n\n[${cliName} isn't installed (or not on PATH) on your laptop. Install it, then try again.` +
                 (cliName === 'claude'
@@ -174,8 +183,8 @@ export default function ChatPanel({
                   ? '\nOn most systems:  npm install -g @openai/codex\nThen:  codex login'
                   : '') +
                 ']'
-              : looksLikeStaleSession
-              ? `\n\n[The previous session ended mid-task and can't be resumed. Click "New" or just send another prompt — the next one will start fresh.]`
+              : looksLikeStaleSession || looksLikeBadHistory
+              ? `\n\n[The previous conversation got into a state ${cliName === 'claude' ? "Claude's API" : 'the model'} won't replay. Send your next message — it'll start a fresh session automatically.]`
               : `\n\n[${cliName} exited with code ${evt.code}${evt.error ? `: ${evt.error}` : ''}]`;
             finalText = `${last.text}${hint}`;
           }
