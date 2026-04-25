@@ -405,18 +405,24 @@ export default function App() {
         return;
       }
       let scripts: Record<string, string> = {};
+      let deps: Record<string, string> = {};
       try {
-        scripts = JSON.parse(textOf(pkg.content)).scripts ?? {};
+        const parsed = JSON.parse(textOf(pkg.content));
+        scripts = parsed.scripts ?? {};
+        deps = { ...(parsed.dependencies ?? {}), ...(parsed.devDependencies ?? {}) };
       } catch {
         log('Could not parse package.json.', 'err');
       }
-      const startScript = scripts.dev
-        ? 'dev'
-        : scripts.start
-        ? 'start'
-        : scripts.serve
-        ? 'serve'
-        : null;
+      // Pick the right web-dev script. Expo projects often have a stray
+      // `dev` script (or none) but also include a Vite config from a
+      // template — picking `dev` would launch Vite on 5173 against a
+      // file tree that has no Vite entry. Detect Expo and prefer its
+      // own scripts; fall back to the generic order otherwise.
+      const isExpo = !!deps.expo || !!deps['expo-router'];
+      const order = isExpo
+        ? ['web', 'start', 'dev']
+        : ['dev', 'start', 'serve'];
+      const startScript = order.find((name) => scripts[name]) ?? null;
       setRunning(true);
       setStatus('installing dependencies…');
       log('$ npm install', 'info');
@@ -429,15 +435,22 @@ export default function App() {
         setRunning(false);
         return;
       }
-      if (!startScript) {
-        log('No dev/start/serve script found in package.json.', 'info');
+      // Expo with no explicit web script: invoke `expo start --web` directly.
+      let dev;
+      if (!startScript && isExpo) {
+        setStatus('starting (expo start --web)…');
+        log('$ npx expo start --web', 'info');
+        dev = await c.spawn('npx', ['expo', 'start', '--web']);
+      } else if (!startScript) {
+        log('No dev/start/serve/web script found in package.json.', 'info');
         setStatus('installed (no start script)');
         setRunning(false);
         return;
+      } else {
+        setStatus(`starting (npm run ${startScript})…`);
+        log(`$ npm run ${startScript}`, 'info');
+        dev = await c.spawn('npm', ['run', startScript]);
       }
-      setStatus(`starting (npm run ${startScript})…`);
-      log(`$ npm run ${startScript}`, 'info');
-      const dev = await c.spawn('npm', ['run', startScript]);
       devProcRef.current = dev;
       pipeProcess(dev);
       dev.exit.then((exitCode) => {
