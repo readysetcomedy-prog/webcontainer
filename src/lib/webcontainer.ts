@@ -65,7 +65,10 @@ export function getContainer(): Promise<WebContainer> {
 export function filesToTree(files: FileEntry[]): FileSystemTree {
   const root: FileSystemTree = {};
   for (const { path, content } of files) {
-    const parts = path.split('/').filter(Boolean);
+    // Tolerate Windows-style paths from older agents — WebContainer is
+    // unix, so a literal "app\index.tsx" filename wouldn't match what
+    // tools (Vite/Expo/etc.) look for.
+    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
     let node: FileSystemTree = root;
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];

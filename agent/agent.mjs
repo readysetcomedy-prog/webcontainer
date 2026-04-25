@@ -136,6 +136,11 @@ function killProc(req) {
   if (child) child.kill('SIGTERM');
 }
 
+// Studio is unix-flavored (WebContainer is Linux), so every path we hand
+// it must use forward slashes — otherwise on Windows a relative path like
+// "app\index.tsx" becomes a literal filename instead of a directory tree.
+const toPosix = (p) => p.replace(/\\/g, '/');
+
 async function listDir({ path, recursive }) {
   const root = resolvePath(path);
   if (recursive) {
@@ -149,7 +154,7 @@ async function listDir({ path, recursive }) {
       .filter((e) => !SKIP_DIRS.has(e.name))
       .map((e) => ({
         name: e.name,
-        path: relative(root, join(root, e.name)),
+        path: toPosix(relative(root, join(root, e.name))),
         isDir: e.isDirectory(),
       })),
   };
@@ -168,7 +173,7 @@ async function walk(root, dir, out) {
     if (e.isDirectory()) {
       await walk(root, full, out);
     } else if (e.isFile()) {
-      out.push({ path: relative(root, full), isDir: false });
+      out.push({ path: toPosix(relative(root, full)), isDir: false });
     }
   }
 }
@@ -200,8 +205,8 @@ function startWatch({ id, path }) {
   try {
     const w = fsWatch(path, { recursive: true }, (event, filename) => {
       if (!filename) return;
-      const norm = String(filename);
-      const top = norm.split(/[\\/]/, 1)[0];
+      const norm = toPosix(String(filename));
+      const top = norm.split('/', 1)[0];
       if (SKIP_DIRS.has(top)) return;
       pending.add(norm);
       if (timer) clearTimeout(timer);
