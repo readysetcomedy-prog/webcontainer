@@ -16,6 +16,7 @@ import {
   parseRepoInput,
 } from './lib/github';
 import PushDialog from './components/PushDialog';
+import PullDialog from './components/PullDialog';
 import { deployToNetlify } from './lib/netlify';
 import JSZip from 'jszip';
 import { STARTER_FILES } from './lib/starter';
@@ -1064,7 +1065,23 @@ export default function App() {
     [activeProject, log, notify],
   );
 
+  const [pullDialogOpen, setPullDialogOpen] = useState(false);
+
   const pullFromGitHub = useCallback(async () => {
+    if (!ghToken) {
+      log('Connect GitHub first to pull.', 'err');
+      notify('error', 'Connect GitHub first.');
+      return;
+    }
+    // If the agent + a path are wired up, the user wants the GitHub pull
+    // to land on their laptop (the watcher then mirrors to the preview).
+    // That's the bolt-with-a-real-disk flow. Open the dialog so they can
+    // pick repo/branch/path explicitly.
+    if (agentInfo) {
+      setPullDialogOpen(true);
+      return;
+    }
+    // Otherwise (no agent), keep the legacy in-WebContainer reload.
     if (!currentRepoKey || !currentBranch) {
       log('No repo loaded.', 'err');
       return;
@@ -1078,7 +1095,50 @@ export default function App() {
     const [owner, repo] = currentRepoKey.split('/');
     await pullRef({ owner, repo, ref: currentBranch });
     setDirtyPaths(new Set());
-  }, [currentBranch, currentRepoKey, dirtyPaths, log, pullRef]);
+  }, [agentInfo, currentBranch, currentRepoKey, dirtyPaths, ghToken, log, notify, pullRef]);
+
+  const onPulled = useCallback(
+    async (r: {
+      owner: string;
+      repo: string;
+      branch: string;
+      path: string;
+      fileCount: number;
+    }) => {
+      setPullDialogOpen(false);
+      log(
+        `Pulled ${r.fileCount} files from ${r.owner}/${r.repo}@${r.branch} into ${r.path}`,
+        'info',
+      );
+      notify(
+        'success',
+        `Pulled ${r.fileCount} files into ${r.path}`,
+      );
+      // If we pulled into the active project's machine path, the watcher
+      // already mirrored disk -> WebContainer. If we pulled to a brand-new
+      // path, link the path on the active project so future opens use it.
+      if (activeProject && agentInfo) {
+        const pbm = activeProject.pathsByMachine ?? {};
+        if (pbm[agentInfo.host] !== r.path) {
+          try {
+            const saved = await updateProjectFields(activeProject.id, {
+              pathsByMachine: { ...pbm, [agentInfo.host]: r.path },
+              localPath: activeProject.localPath ?? r.path,
+              owner: activeProject.owner ?? r.owner,
+              repo: activeProject.repo ?? r.repo,
+              branch: activeProject.branch ?? r.branch,
+            });
+            setProjects((prev) =>
+              prev.map((x) => (x.id === saved.id ? saved : x)),
+            );
+          } catch (e) {
+            log(`Couldn't link path to project: ${(e as Error).message}`, 'err');
+          }
+        }
+      }
+    },
+    [activeProject, agentInfo, log, notify],
+  );
 
   const deploy = useCallback(
     async (token: string, siteId: string) => {
@@ -1240,6 +1300,19 @@ export default function App() {
           initialBranch={activeProject?.branch ?? currentBranch}
           onClose={() => setPushDialogOpen(false)}
           onPushed={onPushed}
+        />
+      )}
+      {pullDialogOpen && ghToken && agentInfo && agentRef.current && (
+        <PullDialog
+          token={ghToken}
+          agent={agentRef.current}
+          agentInfo={agentInfo}
+          initialOwner={activeProject?.owner ?? null}
+          initialRepo={activeProject?.repo ?? null}
+          initialBranch={activeProject?.branch ?? currentBranch}
+          initialPath={currentLocalPath}
+          onClose={() => setPullDialogOpen(false)}
+          onPulled={onPulled}
         />
       )}
     <div className="app">

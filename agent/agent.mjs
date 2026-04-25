@@ -183,9 +183,17 @@ async function readFile({ path }) {
   return { content: buf.toString('utf-8') };
 }
 
-async function writeFile({ path, content }) {
-  await fs.mkdir(resolvePath(path).replace(/\/[^/]+$/, ''), { recursive: true });
-  await fs.writeFile(resolvePath(path), content, 'utf-8');
+async function writeFile({ path, content, encoding }) {
+  const target = resolvePath(path);
+  const parent = target.replace(/[\\/][^\\/]+$/, '');
+  if (parent && parent !== target) {
+    await fs.mkdir(parent, { recursive: true });
+  }
+  if (encoding === 'base64') {
+    await fs.writeFile(target, Buffer.from(content, 'base64'));
+  } else {
+    await fs.writeFile(target, content, 'utf-8');
+  }
   return { ok: true };
 }
 

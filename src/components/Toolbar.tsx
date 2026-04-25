@@ -175,11 +175,13 @@ export default function Toolbar({
         <button
           data-tour="btn-pull"
           onClick={onPullFromGitHub}
-          disabled={booting || !repoKey}
+          disabled={booting || (!repoKey && !token)}
           title={
-            repoKey
+            !token
+              ? 'Connect GitHub to pull'
+              : repoKey
               ? `Pull latest from ${repoKey}`
-              : 'Open a repo first to pull from GitHub'
+              : 'Pick a repo + branch to pull onto your laptop'
           }
         >
           Pull

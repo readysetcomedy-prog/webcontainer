@@ -259,8 +259,12 @@ export class AgentClient {
     return this.rpc('read', { path });
   }
 
-  writeFile(path: string, content: string): Promise<{ ok: true }> {
-    return this.rpc('write', { path, content });
+  writeFile(
+    path: string,
+    content: string,
+    encoding: 'utf-8' | 'base64' = 'utf-8',
+  ): Promise<{ ok: true }> {
+    return this.rpc('write', { path, content, encoding });
   }
 
   exists(path: string): Promise<{ exists: boolean }> {
