@@ -479,6 +479,28 @@ export default function App() {
     }
   }, []);
 
+  // Coalesced restart. Multiple callers (the auto-resync effect, the
+  // watcher's config-file detector, onPulled) can ask to restart while a
+  // bulk operation is still flooding files in. We kill the dev server
+  // immediately on the first call so it stops choking on mid-write
+  // configs, then wait for the file flood to quiet down before booting
+  // the new one. Each new request resets the timer.
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRestart = useCallback(
+    (filesOverride?: FileEntry[]) => {
+      stopDev();
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      const snapshot = filesOverride;
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
+        runDev(snapshot ?? filesRef.current).catch((e) =>
+          log(`Auto-restart failed: ${(e as Error).message}`, 'err'),
+        );
+      }, 800);
+    },
+    [log, runDev, stopDev],
+  );
+
 
   const loadFromAgent = useCallback(
     async (path: string): Promise<FileEntry[]> => {
@@ -814,11 +836,7 @@ export default function App() {
             `Synced ${fetched.length} files from ${path}`,
           );
           log(`Synced ${fetched.length} files from ${path}`, 'info');
-          if (!cancelled) {
-            runDev(fetched).catch((e) =>
-              log(`Auto-run failed: ${(e as Error).message}`, 'err'),
-            );
-          }
+          if (!cancelled) scheduleRestart(fetched);
         } else {
           log(`No readable files at ${path}.`, 'info');
         }
@@ -893,11 +911,7 @@ export default function App() {
           const cfgChange = normalized.find((p) => NEEDS_RESTART.test(p));
           if (cfgChange) {
             log(`${cfgChange} changed — restarting dev server.`, 'info');
-            stopDev();
-            const after = filesRef.current;
-            runDev(after).catch((e) =>
-              log(`Auto-restart failed: ${(e as Error).message}`, 'err'),
-            );
+            scheduleRestart();
           }
         } catch (e) {
           log(`Watcher sync failed: ${(e as Error).message}`, 'err');
@@ -917,7 +931,7 @@ export default function App() {
     log,
     notify,
     loadFromAgent,
-    runDev,
+    scheduleRestart,
     stopDev,
   ]);
 
@@ -1232,43 +1246,17 @@ export default function App() {
         }
       }
 
-      // Pull landed on the path the watcher is already watching, so the
-      // auto-resync effect won't refire. Force a clean re-mount + dev
-      // server restart so the preview reflects the pulled state.
-      const c = containerRef.current;
-      const a = agentRef.current;
-      if (c && a && pulledIntoActiveProject) {
-        try {
-          stopDev();
-          setStatus(`syncing ${r.path}…`);
-          const fetched = await loadFromAgent(r.path);
-          if (fetched.length > 0) {
-            await c.mount(filesToTree(fetched));
-            setFiles(fetched);
-            setDirtyPaths(new Set());
-            const current = activePathRef.current;
-            if (!current || !fetched.some((f) => f.path === current)) {
-              const firstCode = fetched.find((f) =>
-                /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
-              );
-              setActivePath(firstCode?.path ?? fetched[0]?.path ?? null);
-            }
-          }
-          await runDev(fetched);
-        } catch (e) {
-          log(`Post-pull restart failed: ${(e as Error).message}`, 'err');
-        }
+      // Pull landed on the path the watcher is already watching. The
+      // watcher mirrored every disk write into WebContainer as it
+      // happened; all that's left is to give the dev server a fresh
+      // process. scheduleRestart coalesces with whatever the watcher's
+      // config-file detector already triggered, so we get exactly one
+      // restart no matter how many configs the pull touched.
+      if (pulledIntoActiveProject) {
+        scheduleRestart();
       }
     },
-    [
-      activeProject,
-      agentInfo,
-      loadFromAgent,
-      log,
-      notify,
-      runDev,
-      stopDev,
-    ],
+    [activeProject, agentInfo, log, notify, scheduleRestart],
   );
 
   const deploy = useCallback(
