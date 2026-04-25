@@ -681,6 +681,16 @@ export default function App() {
 
   const [followEdits, setFollowEdits] = useState(true);
   const [editorFlashKey, setEditorFlashKey] = useState(0);
+  // Refs so the watcher effect doesn't re-run (and re-do its initial full
+  // sync) every time the user clicks a different file or toggles follow.
+  const followEditsRef = useRef(followEdits);
+  const activePathRef = useRef(activePath);
+  useEffect(() => {
+    followEditsRef.current = followEdits;
+  }, [followEdits]);
+  useEffect(() => {
+    activePathRef.current = activePath;
+  }, [activePath]);
 
   useEffect(() => {
     if (!agentMode || !currentLocalPath || !activeProject) return;
@@ -689,61 +699,104 @@ export default function App() {
     if (!a || !c) return;
     const path = currentLocalPath;
     const watchId = `proj-${activeProject.id}`;
-    const off = a.watchStart(watchId, path, async (changes) => {
+    let cancelled = false;
+    let off: () => void = () => {};
+
+    (async () => {
+      // Initial full sync: disk -> WebContainer. This makes disk the source
+      // of truth as soon as the agent + a path are wired up, even if the
+      // project was originally opened from GitHub at open time.
       try {
-        const normalized = changes.map((c) => c.replace(/\\/g, '/'));
-        const root = path.replace(/\/$/, '');
-        // Sync each changed file from disk -> WebContainer so HMR fires.
-        const updated: { path: string; content: string }[] = [];
-        await Promise.all(
-          normalized.map(async (rel) => {
-            try {
-              const { content } = await a.readFile(`${root}/${rel}`);
-              await c.fs.writeFile(`/${rel}`, content);
-              updated.push({ path: rel, content });
-            } catch {
-              // File may have been deleted; ignore so the watcher keeps going.
-            }
-          }),
-        );
-        setFiles((prev) => {
-          const byPath = new Map(prev.map((f) => [f.path, f]));
-          for (const u of updated) byPath.set(u.path, u);
-          return Array.from(byPath.values());
-        });
-        setDirtyPaths((prev) => {
-          const next = new Set(prev);
-          for (const c of normalized) next.delete(c);
-          return next;
-        });
-        if (followEdits) {
-          const codeChange = normalized.find((c) =>
-            /\.(tsx?|jsx?|html?|css|scss|md|json|ya?ml|toml|sql|py|rb|go|rs|java|kt|swift|c|cpp|hpp?|sh|env|php|lua)$/i.test(
-              c,
-            ),
+        setStatus(`syncing ${path} from your laptop…`);
+        const fetched = await loadFromAgent(path);
+        if (cancelled) return;
+        if (fetched.length > 0) {
+          await c.mount(filesToTree(fetched));
+          setFiles(fetched);
+          setDirtyPaths(new Set());
+          // If the user hasn't picked a file yet (or the previously active
+          // one disappeared), surface something sensible.
+          const current = activePathRef.current;
+          if (!current || !fetched.some((f) => f.path === current)) {
+            const firstCode = fetched.find((f) =>
+              /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
+            );
+            setActivePath(firstCode?.path ?? fetched[0]?.path ?? null);
+          }
+          setStatus('synced from disk');
+          notify(
+            'success',
+            `Synced ${fetched.length} files from ${path}`,
           );
-          if (codeChange) {
-            setActivePath(codeChange);
-            setEditorFlashKey((k) => k + 1);
-          } else if (normalized.some((c) => c === activePath)) {
+          log(`Synced ${fetched.length} files from ${path}`, 'info');
+        } else {
+          log(`No readable files at ${path}.`, 'info');
+        }
+      } catch (e) {
+        log(`Disk sync failed: ${(e as Error).message}`, 'err');
+      }
+
+      if (cancelled) return;
+
+      off = a.watchStart(watchId, path, async (changes) => {
+        try {
+          const normalized = changes.map((c) => c.replace(/\\/g, '/'));
+          const root = path.replace(/\/$/, '');
+          // Sync each changed file from disk -> WebContainer so HMR fires.
+          const updated: { path: string; content: string }[] = [];
+          await Promise.all(
+            normalized.map(async (rel) => {
+              try {
+                const { content } = await a.readFile(`${root}/${rel}`);
+                await c.fs.writeFile(`/${rel}`, content);
+                updated.push({ path: rel, content });
+              } catch {
+                // File may have been deleted; ignore so the watcher keeps going.
+              }
+            }),
+          );
+          setFiles((prev) => {
+            const byPath = new Map(prev.map((f) => [f.path, f]));
+            for (const u of updated) byPath.set(u.path, u);
+            return Array.from(byPath.values());
+          });
+          setDirtyPaths((prev) => {
+            const next = new Set(prev);
+            for (const c of normalized) next.delete(c);
+            return next;
+          });
+          const currentActive = activePathRef.current;
+          if (followEditsRef.current) {
+            const codeChange = normalized.find((c) =>
+              /\.(tsx?|jsx?|html?|css|scss|md|json|ya?ml|toml|sql|py|rb|go|rs|java|kt|swift|c|cpp|hpp?|sh|env|php|lua)$/i.test(
+                c,
+              ),
+            );
+            if (codeChange) {
+              setActivePath(codeChange);
+              setEditorFlashKey((k) => k + 1);
+            } else if (normalized.some((c) => c === currentActive)) {
+              setEditorFlashKey((k) => k + 1);
+            }
+          } else if (normalized.some((c) => c === currentActive)) {
             setEditorFlashKey((k) => k + 1);
           }
-        } else if (normalized.some((c) => c === activePath)) {
-          setEditorFlashKey((k) => k + 1);
+          notify(
+            'info',
+            `${changes.length} file${changes.length === 1 ? '' : 's'} synced from disk`,
+          );
+        } catch (e) {
+          log(`Watcher sync failed: ${(e as Error).message}`, 'err');
         }
-        notify(
-          'info',
-          `${changes.length} file${changes.length === 1 ? '' : 's'} synced from disk`,
-        );
-      } catch (e) {
-        log(`Watcher sync failed: ${(e as Error).message}`, 'err');
-      }
-    });
-    log(`Watching ${path} for changes (will sync to preview).`, 'info');
+      });
+      log(`Watching ${path} for changes (will sync to preview).`, 'info');
+    })();
+
     return () => {
+      cancelled = true;
       off();
     };
-  }, [agentMode, activeProject, currentLocalPath, log, notify, followEdits, activePath]);
+  }, [agentMode, activeProject, currentLocalPath, log, notify, loadFromAgent]);
 
   const buildExpo = useCallback(
     (platform: 'ios' | 'android') => {
