@@ -56,18 +56,30 @@ export function isTrackable(preset: ModelPreset | null): boolean {
  *   behavior — user's custom preset knows what it wants).
  * - Tracked Claude runs also strip any existing --output-format /
  *   --verbose flags and replace them with stream-json + --verbose.
+ * - Claude runs auto-inject --permission-mode bypassPermissions unless
+ *   the user explicitly set one. Users who don't want this can add
+ *   their own --permission-mode flag in the preset's args.
  */
 export function buildExecForModel(
   preset: ModelPreset,
   prompt: string,
 ): { args: string[]; stdin?: string } {
   const usesStdin = preset.cli === 'claude' || preset.cli === 'codex';
+  const isClaude = preset.cli === 'claude';
+
+  const hasPermissionMode = preset.args.some(
+    (a) => a === '--permission-mode' || a.startsWith('--permission-mode='),
+  );
 
   if (!isTrackable(preset)) {
-    if (usesStdin) {
-      return { args: [...preset.args], stdin: prompt };
+    const baseArgs = [...preset.args];
+    if (isClaude && !hasPermissionMode) {
+      baseArgs.push('--permission-mode', 'bypassPermissions');
     }
-    return { args: [...preset.args, prompt] };
+    if (usesStdin) {
+      return { args: baseArgs, stdin: prompt };
+    }
+    return { args: [...baseArgs, prompt] };
   }
 
   const out: string[] = [];
@@ -81,7 +93,9 @@ export function buildExecForModel(
     out.push(a);
   }
   out.push('--output-format', 'stream-json', '--verbose');
-  // tracked claude always goes through stdin; tracked codex too if ever added
+  if (isClaude && !hasPermissionMode) {
+    out.push('--permission-mode', 'bypassPermissions');
+  }
   return { args: out, stdin: prompt };
 }
 
