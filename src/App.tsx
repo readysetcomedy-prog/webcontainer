@@ -14,8 +14,8 @@ import {
   fetchRepoFiles,
   getUser,
   parseRepoInput,
-  pushCommit,
 } from './lib/github';
+import PushDialog from './components/PushDialog';
 import { deployToNetlify } from './lib/netlify';
 import JSZip from 'jszip';
 import { STARTER_FILES } from './lib/starter';
@@ -1002,56 +1002,67 @@ export default function App() {
     }
   }, [activeProject, currentBranch, currentRepoKey, log, notify]);
 
-  const pushToGitHub = useCallback(async () => {
+  const [pushDialogOpen, setPushDialogOpen] = useState(false);
+
+  const pushToGitHub = useCallback(() => {
     if (!ghToken) {
       log('Connect GitHub first to push.', 'err');
+      notify('error', 'Connect GitHub first.');
       return;
     }
-    if (!currentRepoKey || !currentBranch) {
-      log('No repo loaded.', 'err');
+    if (files.length === 0) {
+      log('Nothing to push — no files loaded.', 'info');
       return;
     }
-    if (dirtyPaths.size === 0) {
-      log('Nothing to push — no files edited since last sync.', 'info');
-      return;
-    }
-    const [owner, repo] = currentRepoKey.split('/');
-    const dirty = files.filter((f) => dirtyPaths.has(f.path));
-    const message =
-      dirty.length <= 3
-        ? `studio: ${dirty.map((f) => f.path).join(', ')}`
-        : `studio: update ${dirty.length} files`;
-    setStatus(`pushing ${dirty.length} file${dirty.length === 1 ? '' : 's'}…`);
-    try {
-      const { commitSha } = await pushCommit(
-        ghToken,
-        owner,
-        repo,
-        currentBranch,
-        dirty,
-        message,
-      );
+    setPushDialogOpen(true);
+  }, [ghToken, files.length, log, notify]);
+
+  const onPushed = useCallback(
+    (r: {
+      owner: string;
+      repo: string;
+      branch: string;
+      commitSha: string;
+      fileCount: number;
+    }) => {
+      setPushDialogOpen(false);
       setDirtyPaths(new Set());
       log(
-        `Pushed ${dirty.length} file${dirty.length === 1 ? '' : 's'} to ${owner}/${repo}@${currentBranch} (${commitSha.slice(0, 7)}).`,
+        `Pushed ${r.fileCount} file${r.fileCount === 1 ? '' : 's'} to ${r.owner}/${r.repo}@${r.branch} (${r.commitSha.slice(0, 7)}).`,
         'info',
       );
       notify(
         'success',
-        `Pushed ${dirty.length} file${dirty.length === 1 ? '' : 's'} to ${owner}/${repo}@${currentBranch}`,
+        `Pushed ${r.fileCount} file${r.fileCount === 1 ? '' : 's'} to ${r.owner}/${r.repo}@${r.branch}`,
         {
-          url: `https://github.com/${owner}/${repo}/commit/${commitSha}`,
-          urlLabel: `View commit ${commitSha.slice(0, 7)}`,
+          url: `https://github.com/${r.owner}/${r.repo}/commit/${r.commitSha}`,
+          urlLabel: `View commit ${r.commitSha.slice(0, 7)}`,
         },
       );
-      setStatus(`pushed ${commitSha.slice(0, 7)}`);
-    } catch (e) {
-      const msg = (e as Error).message;
-      log(`Push failed: ${msg}`, 'err');
-      notify('error', `Push failed: ${msg}`);
-      setStatus('push failed');
-    }
-  }, [currentBranch, currentRepoKey, dirtyPaths, files, ghToken, log, notify]);
+      setStatus(`pushed ${r.commitSha.slice(0, 7)}`);
+      // If this push targeted the current project's repo and the project is
+      // local-only (no GitHub fields yet), link them so future pushes default
+      // here. Or if branch differs, sync the branch.
+      if (activeProject) {
+        const patch: Record<string, string | null> = {};
+        if (!activeProject.owner) patch.owner = r.owner;
+        if (!activeProject.repo) patch.repo = r.repo;
+        if (!activeProject.branch) patch.branch = r.branch;
+        if (Object.keys(patch).length > 0) {
+          updateProjectFields(activeProject.id, patch as never)
+            .then((saved) =>
+              setProjects((prev) =>
+                prev.map((x) => (x.id === saved.id ? saved : x)),
+              ),
+            )
+            .catch((e) =>
+              log(`Couldn't link project to repo: ${(e as Error).message}`, 'err'),
+            );
+        }
+      }
+    },
+    [activeProject, log, notify],
+  );
 
   const pullFromGitHub = useCallback(async () => {
     if (!currentRepoKey || !currentBranch) {
@@ -1217,6 +1228,18 @@ export default function App() {
         <Tour
           steps={getTourSteps({ setBottomTab })}
           onClose={() => setTourOpen(false)}
+        />
+      )}
+      {pushDialogOpen && ghToken && (
+        <PushDialog
+          token={ghToken}
+          files={files}
+          dirtyPaths={dirtyPaths}
+          initialOwner={activeProject?.owner ?? null}
+          initialRepo={activeProject?.repo ?? null}
+          initialBranch={activeProject?.branch ?? currentBranch}
+          onClose={() => setPushDialogOpen(false)}
+          onPushed={onPushed}
         />
       )}
     <div className="app">

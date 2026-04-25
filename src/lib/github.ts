@@ -230,6 +230,38 @@ async function ghPatch<T>(url: string, token: string, body: unknown): Promise<T>
   return res.json() as Promise<T>;
 }
 
+/**
+ * Create a new branch in `owner/repo` pointing at `fromSha`. Throws if the
+ * branch already exists (422). Use `getBranchHeadSha` to look up the
+ * source commit.
+ */
+export async function createBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  fromSha: string,
+): Promise<{ ref: string }> {
+  return ghPost<{ ref: string }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/refs`,
+    token,
+    { ref: `refs/heads/${branch}`, sha: fromSha },
+  );
+}
+
+export async function getBranchHeadSha(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<string> {
+  const r = await ghJson<{ object: { sha: string } }>(
+    `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+    token,
+  );
+  return r.object.sha;
+}
+
 export async function pushCommit(
   token: string,
   owner: string,
