@@ -384,11 +384,20 @@ export default function App() {
     [],
   );
 
+  // Stable ref so callers (including effects) can rely on runDev's
+  // identity not changing every time the file list updates. Without this
+  // the auto-resync effect would re-run -> re-runDev -> setFiles ->
+  // re-run effect, looping forever.
+  const filesRef = useRef<FileEntry[]>(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
   const runDev = useCallback(
     async (filesOverride?: FileEntry[]) => {
       const c = containerRef.current;
       if (!c) return;
-      const projectFiles = filesOverride ?? files;
+      const projectFiles = filesOverride ?? filesRef.current;
       const pkg = projectFiles.find((f) => f.path === 'package.json');
       if (!pkg) {
         log('No package.json found — skipping install/run.', 'info');
@@ -432,6 +441,10 @@ export default function App() {
       devProcRef.current = dev;
       pipeProcess(dev);
       dev.exit.then((exitCode) => {
+        // If a newer dev process has replaced us (because we restarted
+        // after a pull or full re-sync), let it own the state. Otherwise
+        // we'd clear the new process's ref/preview from this old handler.
+        if (devProcRef.current !== dev) return;
         log(`dev server exited (${exitCode})`, 'info');
         devProcRef.current = null;
         setRunning(false);
@@ -439,11 +452,18 @@ export default function App() {
         setStatus('stopped');
       });
     },
-    [files, log, pipeProcess],
+    [log, pipeProcess],
   );
 
   const stopDev = useCallback(() => {
-    devProcRef.current?.kill();
+    const p = devProcRef.current;
+    if (!p) return;
+    devProcRef.current = null; // detach immediately so the next runDev owns state
+    try {
+      p.kill();
+    } catch {
+      // already exited
+    }
   }, []);
 
 
@@ -776,6 +796,16 @@ export default function App() {
             `Synced ${fetched.length} files from ${path}`,
           );
           log(`Synced ${fetched.length} files from ${path}`, 'info');
+          // Whatever was running before was bound to the old file set
+          // (likely from GitHub or a previous project). Always restart
+          // against the fresh disk mount so the user doesn't have to
+          // click Stop+Run themselves.
+          if (!cancelled) {
+            stopDev();
+            runDev(fetched).catch((e) =>
+              log(`Auto-run failed: ${(e as Error).message}`, 'err'),
+            );
+          }
         } else {
           log(`No readable files at ${path}.`, 'info');
         }
@@ -853,7 +883,16 @@ export default function App() {
       cancelled = true;
       off();
     };
-  }, [agentMode, activeProject, currentLocalPath, log, notify, loadFromAgent]);
+  }, [
+    agentMode,
+    activeProject,
+    currentLocalPath,
+    log,
+    notify,
+    loadFromAgent,
+    runDev,
+    stopDev,
+  ]);
 
   const buildExpo = useCallback(
     (platform: 'ios' | 'android') => {
@@ -1137,12 +1176,14 @@ export default function App() {
         'success',
         `Pulled ${r.fileCount} files into ${r.path}`,
       );
-      // If we pulled into the active project's machine path, the watcher
-      // already mirrored disk -> WebContainer. If we pulled to a brand-new
-      // path, link the path on the active project so future opens use it.
+      // If we pulled to a path that isn't the active project's machine
+      // path, link it now so future opens use it. Same for blank
+      // owner/repo/branch on a local-only project that just got a remote.
+      let pulledIntoActiveProject = false;
       if (activeProject && agentInfo) {
         const pbm = activeProject.pathsByMachine ?? {};
-        if (pbm[agentInfo.host] !== r.path) {
+        pulledIntoActiveProject = pbm[agentInfo.host] === r.path;
+        if (!pulledIntoActiveProject) {
           try {
             const saved = await updateProjectFields(activeProject.id, {
               pathsByMachine: { ...pbm, [agentInfo.host]: r.path },
@@ -1154,13 +1195,53 @@ export default function App() {
             setProjects((prev) =>
               prev.map((x) => (x.id === saved.id ? saved : x)),
             );
+            // Updating pathsByMachine causes currentLocalPath to change,
+            // which triggers the auto-resync effect — that handles the
+            // mount + dev-server restart for us.
+            return;
           } catch (e) {
             log(`Couldn't link path to project: ${(e as Error).message}`, 'err');
           }
         }
       }
+
+      // Pull landed on the path the watcher is already watching, so the
+      // auto-resync effect won't refire. Force a clean re-mount + dev
+      // server restart so the preview reflects the pulled state.
+      const c = containerRef.current;
+      const a = agentRef.current;
+      if (c && a && pulledIntoActiveProject) {
+        try {
+          stopDev();
+          setStatus(`syncing ${r.path}…`);
+          const fetched = await loadFromAgent(r.path);
+          if (fetched.length > 0) {
+            await c.mount(filesToTree(fetched));
+            setFiles(fetched);
+            setDirtyPaths(new Set());
+            const current = activePathRef.current;
+            if (!current || !fetched.some((f) => f.path === current)) {
+              const firstCode = fetched.find((f) =>
+                /\.(tsx?|jsx?|html|css|md|json)$/i.test(f.path),
+              );
+              setActivePath(firstCode?.path ?? fetched[0]?.path ?? null);
+            }
+          }
+          await runDev(fetched);
+        } catch (e) {
+          log(`Post-pull restart failed: ${(e as Error).message}`, 'err');
+        }
+      }
     },
-    [activeProject, agentInfo, log, notify],
+    [
+      activeProject,
+      agentInfo,
+      loadFromAgent,
+      log,
+      notify,
+      runDev,
+      stopDev,
+    ],
   );
 
   const deploy = useCallback(
