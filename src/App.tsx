@@ -613,9 +613,18 @@ export default function App() {
 
   const openProject = useCallback(
     (p: Project) => {
-      pullRef({ owner: p.owner, repo: p.repo, ref: p.branch });
+      // Local-only project: just make it active. The watcher useEffect picks
+      // it up from there and mounts disk -> WebContainer.
+      if (!p.owner || !p.repo) {
+        setActiveProjectIdState(p.id);
+        persistSecret({ lastActiveProjectId: p.id });
+        setCurrentRepoKey(null);
+        setCurrentBranch(null);
+        return;
+      }
+      pullRef({ owner: p.owner, repo: p.repo, ref: p.branch ?? undefined });
     },
-    [pullRef],
+    [pullRef, persistSecret],
   );
 
   const saveCurrentProject = useCallback(
@@ -940,8 +949,10 @@ export default function App() {
         zip.file('.env.local', activeProject.envContent);
       }
       const blob = await zip.generateAsync({ type: 'blob' });
-      const baseName = activeProject
+      const baseName = activeProject?.repo && activeProject.branch
         ? `${activeProject.repo}-${activeProject.branch.replace(/\//g, '_')}`
+        : activeProject
+        ? activeProject.name.replace(/[^a-z0-9._-]+/gi, '_')
         : currentRepoKey
         ? `${currentRepoKey.split('/')[1]}-${(currentBranch ?? 'main').replace(/\//g, '_')}`
         : 'project';

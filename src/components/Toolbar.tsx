@@ -126,7 +126,7 @@ export default function Toolbar({
           </span>
         )}
       </div>
-      {activeProject && token && currentBranch && (
+      {activeProject && activeProject.owner && activeProject.repo && token && currentBranch && (
         <div data-tour="branch-picker">
           <BranchPicker
             token={token}
@@ -134,7 +134,7 @@ export default function Toolbar({
             repo={activeProject.repo}
             branch={currentBranch}
             onPick={(b) =>
-              onSelectBranch(activeProject.owner, activeProject.repo, b)
+              onSelectBranch(activeProject.owner!, activeProject.repo!, b)
             }
           />
         </div>

@@ -5,9 +5,9 @@ interface ProjectRow {
   id: string;
   user_id: string;
   name: string;
-  owner: string;
-  repo: string;
-  branch: string;
+  owner: string | null;
+  repo: string | null;
+  branch: string | null;
   env_content: string;
   netlify_site_id: string | null;
   local_path: string | null;
@@ -94,7 +94,14 @@ export async function updateProjectFields(
   patch: Partial<
     Pick<
       Project,
-      'name' | 'branch' | 'envContent' | 'netlifySiteId' | 'localPath' | 'pathsByMachine'
+      | 'name'
+      | 'owner'
+      | 'repo'
+      | 'branch'
+      | 'envContent'
+      | 'netlifySiteId'
+      | 'localPath'
+      | 'pathsByMachine'
     >
   >,
 ): Promise<Project> {
@@ -102,7 +109,9 @@ export async function updateProjectFields(
     updated_at: new Date().toISOString(),
   };
   if (patch.name !== undefined) payload.name = patch.name;
-  if (patch.branch !== undefined) payload.branch = patch.branch;
+  if (patch.owner !== undefined) payload.owner = patch.owner || null;
+  if (patch.repo !== undefined) payload.repo = patch.repo || null;
+  if (patch.branch !== undefined) payload.branch = patch.branch || null;
   if (patch.envContent !== undefined) payload.env_content = patch.envContent;
   if (patch.netlifySiteId !== undefined)
     payload.netlify_site_id = patch.netlifySiteId || null;
@@ -114,6 +123,36 @@ export async function updateProjectFields(
     .from('projects')
     .update(payload)
     .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToProject(data as ProjectRow);
+}
+
+/**
+ * Create a project that's only backed by a folder on disk — no GitHub repo
+ * yet. The caller passes the agent's host so the folder is recorded against
+ * this specific machine; opening the same project on another laptop will
+ * prompt for that machine's path.
+ */
+export async function createLocalProject(
+  userId: string,
+  name: string,
+  machineHost: string,
+  path: string,
+): Promise<Project> {
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({
+      user_id: userId,
+      name,
+      owner: null,
+      repo: null,
+      branch: null,
+      env_content: '',
+      local_path: path,
+      paths_by_machine: { [machineHost]: path },
+    })
     .select()
     .single();
   if (error) throw error;

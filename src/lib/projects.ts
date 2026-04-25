@@ -1,9 +1,12 @@
 export interface Project {
   id: string;
   name: string;
-  owner: string;
-  repo: string;
-  branch: string;
+  // GitHub coordinates: present for projects that originated from a repo
+  // OR have been linked to one for push/pull. Null for local-only projects
+  // that have never been wired up to a remote.
+  owner: string | null;
+  repo: string | null;
+  branch: string | null;
   envContent: string;
   netlifySiteId?: string;
   localPath?: string;

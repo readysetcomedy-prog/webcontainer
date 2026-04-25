@@ -130,12 +130,28 @@ export default function ProjectsSection({
             <button
               className="project-main"
               onClick={() => onOpen(p)}
-              title={`Open ${p.owner}/${p.repo}@${p.branch}`}
+              title={
+                p.owner && p.repo
+                  ? `Open ${p.owner}/${p.repo}${p.branch ? `@${p.branch}` : ''}`
+                  : `Open ${p.localPath ?? p.name} (local folder)`
+              }
             >
               <div className="project-name">{p.name}</div>
               <div className="project-meta">
-                {p.owner}/{p.repo}
-                <span className="project-branch">@{p.branch}</span>
+                {p.owner && p.repo ? (
+                  <>
+                    <span className="project-icon" title="Backed by a GitHub repo">⌥</span>
+                    {p.owner}/{p.repo}
+                    {p.branch && <span className="project-branch">@{p.branch}</span>}
+                  </>
+                ) : (
+                  <>
+                    <span className="project-icon" title="Local folder only">▣</span>
+                    <span className="project-local-path">
+                      {p.localPath ?? '(no path set)'}
+                    </span>
+                  </>
+                )}
               </div>
             </button>
             <div className="project-actions">
