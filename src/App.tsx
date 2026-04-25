@@ -775,6 +775,11 @@ export default function App() {
       // project was originally opened from GitHub at open time.
       try {
         setStatus(`syncing ${path} from your laptop…`);
+        // Kill the dev server FIRST. Mounting hundreds of files with a
+        // running Metro/Vite process means it sees every write live and
+        // bails into "Restart the server… --clear" mode that we then
+        // can't recover from cleanly.
+        stopDev();
         const fetched = await loadFromAgent(path);
         if (cancelled) return;
         if (fetched.length > 0) {
@@ -796,12 +801,7 @@ export default function App() {
             `Synced ${fetched.length} files from ${path}`,
           );
           log(`Synced ${fetched.length} files from ${path}`, 'info');
-          // Whatever was running before was bound to the old file set
-          // (likely from GitHub or a previous project). Always restart
-          // against the fresh disk mount so the user doesn't have to
-          // click Stop+Run themselves.
           if (!cancelled) {
-            stopDev();
             runDev(fetched).catch((e) =>
               log(`Auto-run failed: ${(e as Error).message}`, 'err'),
             );
@@ -872,6 +872,20 @@ export default function App() {
             'info',
             `${changes.length} file${changes.length === 1 ? '' : 's'} synced from disk`,
           );
+          // Files that don't HMR — Vite/Metro/Next need a fresh process
+          // to pick up edits to their config or package.json. Without
+          // this, the dev server prints "Restart the server to see the
+          // new results" and the preview goes stale.
+          const NEEDS_RESTART = /(^|\/)(package\.json|babel\.config\.[cm]?[jt]s|metro\.config\.[cm]?[jt]s|vite\.config\.[cm]?[jt]s|next\.config\.[cm]?[jt]s|tsconfig\.json|app\.json|app\.config\.[cm]?[jt]s)$/;
+          const cfgChange = normalized.find((p) => NEEDS_RESTART.test(p));
+          if (cfgChange) {
+            log(`${cfgChange} changed — restarting dev server.`, 'info');
+            stopDev();
+            const after = filesRef.current;
+            runDev(after).catch((e) =>
+              log(`Auto-restart failed: ${(e as Error).message}`, 'err'),
+            );
+          }
         } catch (e) {
           log(`Watcher sync failed: ${(e as Error).message}`, 'err');
         }
