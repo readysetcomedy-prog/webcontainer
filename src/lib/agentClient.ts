@@ -255,8 +255,11 @@ export class AgentClient {
     return this.rpc('list', { path, recursive });
   }
 
-  readFile(path: string): Promise<{ content: string }> {
-    return this.rpc('read', { path });
+  readFile(
+    path: string,
+    encoding: 'utf-8' | 'base64' = 'utf-8',
+  ): Promise<{ content: string; encoding?: string }> {
+    return this.rpc('read', { path, encoding });
   }
 
   writeFile(

@@ -178,9 +178,12 @@ async function walk(root, dir, out) {
   }
 }
 
-async function readFile({ path }) {
+async function readFile({ path, encoding }) {
   const buf = await fs.readFile(resolvePath(path));
-  return { content: buf.toString('utf-8') };
+  if (encoding === 'base64') {
+    return { content: buf.toString('base64'), encoding: 'base64' };
+  }
+  return { content: buf.toString('utf-8'), encoding: 'utf-8' };
 }
 
 async function writeFile({ path, content, encoding }) {

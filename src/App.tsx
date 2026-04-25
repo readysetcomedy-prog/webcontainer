@@ -11,8 +11,10 @@ import type { FileEntry, LogLine } from './types';
 import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
 import type { GhUser } from './lib/github';
 import {
+  base64ToBytes,
   fetchRepoFiles,
   getUser,
+  isBinaryPath,
   parseRepoInput,
 } from './lib/github';
 import PushDialog from './components/PushDialog';
@@ -464,10 +466,21 @@ export default function App() {
           const i = idx++;
           const p = filePaths[i];
           try {
-            const { content } = await agent.readFile(`${root}/${p}`);
-            fileEntries.push({ path: p, content });
+            // Binary files (jpg/png/etc.) round-trip via base64 — UTF-8
+            // decoding mangles them into invalid bytes that break Metro
+            // and Vite when they try to bundle the asset.
+            if (isBinaryPath(p)) {
+              const { content } = await agent.readFile(
+                `${root}/${p}`,
+                'base64',
+              );
+              fileEntries.push({ path: p, content: base64ToBytes(content) });
+            } else {
+              const { content } = await agent.readFile(`${root}/${p}`);
+              fileEntries.push({ path: p, content });
+            }
           } catch {
-            // Skip unreadable (binary, permission, etc.) — preview can survive
+            // Skip unreadable (permission, etc.) — preview can survive
           }
           done++;
           if (done % 25 === 0) {
@@ -777,13 +790,23 @@ export default function App() {
           const normalized = changes.map((c) => c.replace(/\\/g, '/'));
           const root = path.replace(/\/$/, '');
           // Sync each changed file from disk -> WebContainer so HMR fires.
-          const updated: { path: string; content: string }[] = [];
+          const updated: { path: string; content: string | Uint8Array }[] = [];
           await Promise.all(
             normalized.map(async (rel) => {
               try {
-                const { content } = await a.readFile(`${root}/${rel}`);
-                await c.fs.writeFile(`/${rel}`, content);
-                updated.push({ path: rel, content });
+                if (isBinaryPath(rel)) {
+                  const { content } = await a.readFile(
+                    `${root}/${rel}`,
+                    'base64',
+                  );
+                  const bytes = base64ToBytes(content);
+                  await c.fs.writeFile(`/${rel}`, bytes);
+                  updated.push({ path: rel, content: bytes });
+                } else {
+                  const { content } = await a.readFile(`${root}/${rel}`);
+                  await c.fs.writeFile(`/${rel}`, content);
+                  updated.push({ path: rel, content });
+                }
               } catch {
                 // File may have been deleted; ignore so the watcher keeps going.
               }

@@ -166,7 +166,7 @@ function decodeBase64ToUtf8(b64: string): string {
   return new TextDecoder('utf-8').decode(base64ToBytes(b64));
 }
 
-function base64ToBytes(b64: string): Uint8Array {
+export function base64ToBytes(b64: string): Uint8Array {
   const clean = b64.replace(/\s/g, '');
   const bin = atob(clean);
   const bytes = new Uint8Array(bin.length);
