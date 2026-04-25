@@ -14,7 +14,10 @@ function defaultPathFor(agentInfo: AgentInfo, project: Project): string {
   const isWin = (agentInfo.platform ?? '').toLowerCase() === 'win32';
   const sep = isWin ? '\\' : '/';
   const home = agentInfo.home ?? (isWin ? 'C:\\Users' : '/Users/you');
-  return [home, 'getxsite', project.owner, project.repo].join(sep);
+  const parts = project.owner && project.repo
+    ? [home, 'getxsite', project.owner, project.repo]
+    : [home, 'getxsite', project.name.replace(/[^a-z0-9._-]+/gi, '-')];
+  return parts.join(sep);
 }
 
 export default function AgentPanel({

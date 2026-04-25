@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '../lib/projects';
+import type { AgentClient, AgentInfo } from '../lib/agentClient';
 
 export interface ProjectsSectionProps {
   projects: Project[];
@@ -7,8 +8,11 @@ export interface ProjectsSectionProps {
   canSave: boolean;
   currentRepoKey: string | null;
   currentBranch: string | null;
+  agent: AgentClient | null;
+  agentInfo: AgentInfo | null;
   onOpen: (project: Project) => void;
   onSaveCurrent: (name: string) => void;
+  onCreateLocal: (name: string, path: string) => Promise<void>;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
 }
@@ -19,13 +23,25 @@ export default function ProjectsSection({
   canSave,
   currentRepoKey,
   currentBranch,
+  agent,
+  agentInfo,
   onOpen,
   onSaveCurrent,
+  onCreateLocal,
   onRename,
   onDelete,
 }: ProjectsSectionProps) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [addingLocal, setAddingLocal] = useState(false);
+  const [localName, setLocalName] = useState('');
+  const [localPath, setLocalPath] = useState('');
+  const [localBusy, setLocalBusy] = useState(false);
+  const [localErr, setLocalErr] = useState<string | null>(null);
+  const [pathStatus, setPathStatus] = useState<
+    'idle' | 'checking' | 'exists' | 'missing'
+  >('idle');
+  const probeToken = useRef(0);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -46,6 +62,59 @@ export default function ProjectsSection({
     setNewName('');
   };
 
+  // Live existence probe for the local-folder path field — same UX as
+  // the AgentPanel's path input.
+  useEffect(() => {
+    if (!agent || !agentInfo || !addingLocal) {
+      setPathStatus('idle');
+      return;
+    }
+    const trimmed = localPath.trim();
+    if (!trimmed) {
+      setPathStatus('idle');
+      return;
+    }
+    const token = ++probeToken.current;
+    setPathStatus('checking');
+    const t = setTimeout(() => {
+      agent
+        .exists(trimmed)
+        .then((r) => {
+          if (probeToken.current !== token) return;
+          setPathStatus(r.exists ? 'exists' : 'missing');
+        })
+        .catch(() => {
+          if (probeToken.current !== token) return;
+          setPathStatus('idle');
+        });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [agent, agentInfo, addingLocal, localPath]);
+
+  const startAddLocal = () => {
+    setLocalName('');
+    setLocalPath('');
+    setLocalErr(null);
+    setAddingLocal(true);
+  };
+  const commitAddLocal = async () => {
+    const name = localName.trim();
+    const path = localPath.trim();
+    if (!name || !path) return;
+    setLocalBusy(true);
+    setLocalErr(null);
+    try {
+      await onCreateLocal(name, path);
+      setAddingLocal(false);
+      setLocalName('');
+      setLocalPath('');
+    } catch (e) {
+      setLocalErr((e as Error).message);
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
   const startRename = (p: Project) => {
     setRenamingId(p.id);
     setRenameValue(p.name);
@@ -62,13 +131,101 @@ export default function ProjectsSection({
         <span>Projects</span>
         <button
           className="icon-button"
-          title={canSave ? 'Save current as project' : 'Open a repo first'}
+          title={
+            agentInfo
+              ? 'Open a folder on your laptop as a project'
+              : 'Connect the local agent first'
+          }
+          onClick={startAddLocal}
+          disabled={!agentInfo || addingLocal}
+        >
+          ▣
+        </button>
+        <button
+          className="icon-button"
+          title={canSave ? 'Save current repo as project' : 'Open a repo first'}
           onClick={startAdd}
           disabled={!canSave}
         >
           +
         </button>
       </div>
+      {addingLocal && (
+        <div className="project-row editing project-row-local">
+          <input
+            autoFocus
+            value={localName}
+            onChange={(e) => setLocalName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setAddingLocal(false);
+              }
+            }}
+            placeholder="Project name (e.g. medicgame)"
+            disabled={localBusy}
+          />
+          <input
+            value={localPath}
+            onChange={(e) => setLocalPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && pathStatus === 'exists') commitAddLocal();
+              if (e.key === 'Escape') setAddingLocal(false);
+            }}
+            placeholder={
+              (agentInfo?.platform ?? '').toLowerCase() === 'win32'
+                ? 'C:\\Users\\you\\projects\\medicgame'
+                : '~/projects/medicgame'
+            }
+            disabled={localBusy}
+          />
+          <span
+            className={`path-status path-status-${pathStatus}`}
+            title={
+              pathStatus === 'exists'
+                ? 'Folder exists'
+                : pathStatus === 'missing'
+                ? "Folder doesn't exist on your laptop"
+                : pathStatus === 'checking'
+                ? 'Checking…'
+                : ''
+            }
+          >
+            {pathStatus === 'exists'
+              ? '✓'
+              : pathStatus === 'missing'
+              ? '✗'
+              : pathStatus === 'checking'
+              ? '⟳'
+              : ''}
+          </span>
+          <button
+            className="icon-button"
+            onClick={commitAddLocal}
+            disabled={
+              localBusy ||
+              !localName.trim() ||
+              !localPath.trim() ||
+              pathStatus !== 'exists'
+            }
+            title={
+              pathStatus === 'exists'
+                ? 'Open this folder as a project'
+                : 'Path must exist on your laptop'
+            }
+          >
+            {localBusy ? '…' : '✓'}
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => setAddingLocal(false)}
+            disabled={localBusy}
+            title="Cancel"
+          >
+            ✕
+          </button>
+          {localErr && <div className="project-local-err">{localErr}</div>}
+        </div>
+      )}
       {adding && (
         <div className="project-row editing">
           <input

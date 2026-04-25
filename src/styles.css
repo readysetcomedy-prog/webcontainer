@@ -1141,6 +1141,45 @@ button.primary:hover:not(:disabled) {
   margin-right: 4px;
 }
 
+.project-icon {
+  display: inline-block;
+  width: 12px;
+  margin-right: 4px;
+  text-align: center;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.project-local-path {
+  font-family: ui-monospace, monospace;
+}
+
+.project-row.editing.project-row-local {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.project-row.editing.project-row-local input {
+  flex: 1 1 100%;
+}
+
+.project-row.editing.project-row-local .path-status {
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.path-status-checking { color: var(--fg-dim); }
+.path-status-exists   { color: #50c878; }
+.path-status-missing  { color: #d9534f; }
+
+.project-local-err {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: #d9534f;
+  margin-top: 2px;
+}
+
 .icon-button {
   background: transparent;
   border: 1px solid transparent;

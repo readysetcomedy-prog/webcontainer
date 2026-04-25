@@ -21,6 +21,7 @@ import JSZip from 'jszip';
 import { STARTER_FILES } from './lib/starter';
 import type { Project } from './lib/projects';
 import {
+  createLocalProject,
   deleteProjectRemote,
   fetchProjects,
   findOrCreateProject,
@@ -658,6 +659,29 @@ export default function App() {
     [log],
   );
 
+  const createLocalProjectFromUI = useCallback(
+    async (name: string, path: string) => {
+      if (!session) throw new Error('Sign in first.');
+      if (!agentInfo) throw new Error('Connect the local agent first.');
+      const project = await createLocalProject(
+        session.user.id,
+        name,
+        agentInfo.host,
+        path,
+      );
+      setProjects((prev) => [project, ...prev]);
+      // Activate it; the watcher useEffect will mount disk -> WebContainer.
+      stopDev();
+      setActiveProjectIdState(project.id);
+      persistSecret({ lastActiveProjectId: project.id });
+      setCurrentRepoKey(null);
+      setCurrentBranch(null);
+      log(`Created local project "${name}" at ${path}`, 'info');
+      notify('success', `Opened ${path}`);
+    },
+    [agentInfo, log, notify, session, stopDev],
+  );
+
   const setProjectLocalPath = useCallback(
     async (path: string) => {
       if (!activeProject) return;
@@ -1252,8 +1276,11 @@ export default function App() {
               canSave={!!currentRepoKey && !!currentBranch}
               currentRepoKey={currentRepoKey}
               currentBranch={currentBranch}
+              agent={agentRef.current}
+              agentInfo={agentInfo}
               onOpen={openProject}
               onSaveCurrent={saveCurrentProject}
+              onCreateLocal={createLocalProjectFromUI}
               onRename={renameProject}
               onDelete={deleteProject}
             />
