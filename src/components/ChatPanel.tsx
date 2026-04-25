@@ -161,6 +161,11 @@ export default function ChatPanel({
           } else {
             const cliName = selected?.cli ?? 'the CLI';
             const isEnoent = (evt.error ?? '').includes('ENOENT');
+            const stderrSoFar = last.text ?? '';
+            const looksLikeStaleSession =
+              /No deferred tool marker|exceeds the tail-scan window|stale.*marker|session.*not.*deferred/i.test(
+                stderrSoFar,
+              );
             const hint = isEnoent
               ? `\n\n[${cliName} isn't installed (or not on PATH) on your laptop. Install it, then try again.` +
                 (cliName === 'claude'
@@ -169,6 +174,8 @@ export default function ChatPanel({
                   ? '\nOn most systems:  npm install -g @openai/codex\nThen:  codex login'
                   : '') +
                 ']'
+              : looksLikeStaleSession
+              ? `\n\n[The previous session ended mid-task and can't be resumed. Click "New" or just send another prompt — the next one will start fresh.]`
               : `\n\n[${cliName} exited with code ${evt.code}${evt.error ? `: ${evt.error}` : ''}]`;
             finalText = `${last.text}${hint}`;
           }
@@ -177,6 +184,11 @@ export default function ChatPanel({
             { ...last, text: finalText, pending: false },
           ];
         });
+        // Any non-zero exit invalidates the session continuity — the next
+        // message has to start fresh instead of trying --continue.
+        if (evt.code !== 0) {
+          sessionStartedRef.current = false;
+        }
         activeRunRef.current = null;
         parserRef.current = null;
         prevTextRef.current = '';
@@ -244,6 +256,10 @@ export default function ChatPanel({
   const cancel = () => {
     if (!agent || !activeRunRef.current) return;
     agent.kill(activeRunRef.current);
+    // If the user kills mid-task, mark the session unrecoverable so the
+    // next prompt starts a brand-new conversation rather than trying to
+    // --continue a half-finished one.
+    sessionStartedRef.current = false;
   };
 
   const newConversation = () => {
