@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentClient, AgentInfo } from '../lib/agentClient';
 import type { ModelPreset } from '../lib/userSecrets';
+import { bytesToBase64 } from '../lib/github';
 import {
   addUsage,
   buildExecForModel,
@@ -20,11 +21,50 @@ interface ChatMessage {
   pending?: boolean;
   usage?: Usage;
   activity?: string[];
+  attachments?: { name: string; relPath: string; isImage: boolean }[];
   startedAt?: number;
+}
+
+interface PendingAttachment {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  bytes: Uint8Array;
+  // Object URL for image previews; null for non-images.
+  previewUrl: string | null;
 }
 
 const newMsgId = () =>
   `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25 MB per file
+
+// Sanitise a filename so we can drop it on disk without surprises. Keep
+// extension; collapse anything weird to dashes.
+function safeName(name: string): string {
+  const lastDot = name.lastIndexOf('.');
+  const stem = lastDot > 0 ? name.slice(0, lastDot) : name;
+  const ext = lastDot > 0 ? name.slice(lastDot) : '';
+  const cleanStem = stem.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 60) || 'file';
+  const cleanExt = ext.replace(/[^a-zA-Z0-9.]+/g, '');
+  return cleanStem + cleanExt;
+}
+
+async function fileToAttachment(file: File): Promise<PendingAttachment> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  const isImage = file.type.startsWith('image/');
+  const previewUrl = isImage ? URL.createObjectURL(file) : null;
+  return {
+    id: newMsgId(),
+    name: safeName(file.name),
+    size: bytes.byteLength,
+    type: file.type,
+    bytes,
+    previewUrl,
+  };
+}
 
 export interface ChatPanelProps {
   agent: AgentClient | null;
@@ -66,10 +106,66 @@ export default function ChatPanel({
   } | null>(null);
   const [hasSavepoint, setHasSavepoint] = useState(false);
   const [reverting, setReverting] = useState(false);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachErr, setAttachErr] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
   const selected =
     models.find((m) => m.id === selectedModelId) ?? models[0] ?? null;
   const tracking = isTrackable(selected);
+
+  // Revoke object URLs when attachments are removed/cleared so we don't
+  // leak memory.
+  useEffect(() => {
+    return () => {
+      attachments.forEach((a) => {
+        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+      });
+    };
+    // We only want this to fire on unmount — list-level revoke happens
+    // synchronously at remove time below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addFiles = async (filesIn: FileList | File[]) => {
+    setAttachErr(null);
+    const arr = Array.from(filesIn);
+    const accepted: PendingAttachment[] = [];
+    for (const f of arr) {
+      if (f.size > MAX_ATTACHMENT_BYTES) {
+        setAttachErr(
+          `${f.name} is ${(f.size / 1024 / 1024).toFixed(1)}MB — over the 25MB attachment limit.`,
+        );
+        continue;
+      }
+      try {
+        accepted.push(await fileToAttachment(f));
+      } catch (e) {
+        setAttachErr(`Couldn't read ${f.name}: ${(e as Error).message}`);
+      }
+    }
+    if (accepted.length > 0) {
+      setAttachments((prev) => [...prev, ...accepted]);
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const dropped = prev.find((a) => a.id === id);
+      if (dropped?.previewUrl) URL.revokeObjectURL(dropped.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  };
+
+  const clearAttachments = () => {
+    attachments.forEach((a) => {
+      if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    });
+    setAttachments([]);
+    setAttachErr(null);
+  };
 
   useEffect(() => {
     sessionStartedRef.current = false;
@@ -213,12 +309,74 @@ export default function ChatPanel({
 
   const send = async () => {
     const trimmed = input.trim();
-    if (!trimmed || !agent || !agentInfo || !selected) return;
+    if ((!trimmed && attachments.length === 0) || !agent || !agentInfo || !selected)
+      return;
     if (activeRunRef.current) return;
+
+    // Write attachments to disk before kicking off the CLI. We park them
+    // under <cwd>/.getxsite/attachments/ so the user's repo stays clean
+    // and Claude's prompt can reference them by relative path.
+    const writtenAttachments: { name: string; relPath: string; isImage: boolean }[] = [];
+    if (attachments.length > 0) {
+      if (!cwd) {
+        setAttachErr(
+          "No project folder set — attachments need somewhere to live on disk.",
+        );
+        return;
+      }
+      try {
+        // Make sure .getxsite/ doesn't end up in the user's repo.
+        const gitignorePath = `${cwd.replace(/[\\/]+$/, '')}/.gitignore`;
+        try {
+          const { content } = await agent.readFile(gitignorePath);
+          if (!/^\s*\.getxsite\/?\s*$/m.test(content)) {
+            await agent.writeFile(
+              gitignorePath,
+              content.endsWith('\n') ? content + '.getxsite/\n' : content + '\n.getxsite/\n',
+            );
+          }
+        } catch {
+          // .gitignore might not exist; create one with just our entry.
+          await agent.writeFile(gitignorePath, '.getxsite/\n');
+        }
+
+        const stamp = Date.now().toString(36);
+        for (const a of attachments) {
+          const rel = `.getxsite/attachments/${stamp}-${a.id.slice(2, 8)}-${a.name}`;
+          const target = `${cwd.replace(/[\\/]+$/, '')}/${rel}`;
+          await agent.writeFile(target, bytesToBase64(a.bytes), 'base64');
+          writtenAttachments.push({
+            name: a.name,
+            relPath: rel,
+            isImage: a.type.startsWith('image/'),
+          });
+        }
+      } catch (e) {
+        setAttachErr(`Couldn't save attachments: ${(e as Error).message}`);
+        return;
+      }
+    }
+
+    // Prepend attachment references so the model sees them. Claude Code
+    // (and most CLIs that read paths) will Read / vision the file when
+    // asked.
+    let promptForModel = trimmed;
+    if (writtenAttachments.length > 0) {
+      const lines = writtenAttachments.map((a) =>
+        `- ${a.relPath}${a.isImage ? ' (image)' : ''}`,
+      );
+      const header =
+        writtenAttachments.length === 1
+          ? `Attached file:\n${lines.join('\n')}\n\n`
+          : `Attached ${writtenAttachments.length} files:\n${lines.join('\n')}\n\n`;
+      promptForModel = trimmed ? header + trimmed : header.trim();
+    }
+
     const userMsg: ChatMessage = {
       id: newMsgId(),
       role: 'user',
       text: trimmed,
+      attachments: writtenAttachments.length > 0 ? writtenAttachments : undefined,
     };
     const aiMsg: ChatMessage = {
       id: newMsgId(),
@@ -229,6 +387,7 @@ export default function ChatPanel({
     };
     setMessages((prev) => [...prev, userMsg, aiMsg]);
     setInput('');
+    clearAttachments();
     const runId = newMsgId();
     activeRunRef.current = runId;
     const isClaude = selected.cli === 'claude';
@@ -236,7 +395,7 @@ export default function ChatPanel({
       isClaude && sessionStartedRef.current ? ['--continue'] : [];
     const { args: runArgs, stdin } = buildExecForModel(
       { ...selected, args: [...selected.args, ...continuation] },
-      trimmed,
+      promptForModel,
     );
     sessionStartedRef.current = true;
     parserRef.current = tracking ? makeParser() : null;
@@ -298,6 +457,55 @@ export default function ChatPanel({
     }
   };
 
+  const clearAttachmentFolder = async () => {
+    if (!agent || !cwd) return;
+    const ok = window.confirm(
+      'Delete every file the chat has saved under .getxsite/attachments/ on this laptop? Past chat references will break.',
+    );
+    if (!ok) return;
+    try {
+      // The agent doesn't have a recursive-delete RPC, so we list and
+      // overwrite each known attachment with empty content + remove the
+      // folder via shell. Simpler: spawn rm -rf via exec.
+      const isWin = (agentInfo?.platform ?? '').toLowerCase() === 'win32';
+      const target = `${cwd.replace(/[\\/]+$/, '')}${isWin ? '\\' : '/'}.getxsite${isWin ? '\\' : '/'}attachments`;
+      const cmd = isWin ? 'cmd' : 'rm';
+      const args = isWin ? ['/c', 'rmdir', '/s', '/q', target] : ['-rf', target];
+      const id = `clear-attach-${Date.now().toString(36)}`;
+      agent.exec({ id, command: cmd, args, cwd });
+    } catch (e) {
+      window.alert(`Couldn't clear attachments: ${(e as Error).message}`);
+    }
+  };
+
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setDragActive(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setDragActive(false);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDragActive(false);
+    const dropped = e.dataTransfer.files;
+    if (dropped && dropped.length > 0) addFiles(dropped);
+  };
+  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) addFiles(e.target.files);
+    // reset so picking the same file twice still fires onChange
+    e.target.value = '';
+  };
+
   const [now, setNow] = useState(() => Date.now());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [manualHeight, setManualHeight] = useState<number | null>(null);
@@ -343,7 +551,13 @@ export default function ChatPanel({
     sessionUsage.inputTokens + sessionUsage.outputTokens > 0;
 
   return (
-    <div className="chat-panel">
+    <div
+      className={`chat-panel ${dragActive ? 'chat-panel-dragging' : ''}`}
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <div className="chat-header">
         <span>Chat</span>
         <select
@@ -381,6 +595,15 @@ export default function ChatPanel({
             title="Undo every file change since your last message"
           >
             {reverting ? 'Reverting…' : 'Revert latest'}
+          </button>
+        )}
+        {connected && cwd && (
+          <button
+            className="link-button"
+            onClick={clearAttachmentFolder}
+            title="Delete every file the chat has saved under .getxsite/attachments/"
+          >
+            Clear attachments
           </button>
         )}
         {hasSessionUsage && (
@@ -458,6 +681,19 @@ export default function ChatPanel({
                   ))}
                 </div>
               )}
+              {m.attachments && m.attachments.length > 0 && (
+                <div className="chat-msg-attachments">
+                  {m.attachments.map((a) => (
+                    <span
+                      key={a.relPath}
+                      className="chat-msg-attach-chip"
+                      title={a.relPath}
+                    >
+                      {a.isImage ? '🖼' : '📎'} {a.name}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="chat-msg-text">
                 {m.text ||
                   (m.pending
@@ -493,7 +729,48 @@ export default function ChatPanel({
         onMouseDown={onResizeStart}
         title="Drag to resize — or just type and it grows on its own"
       />
+      {(attachments.length > 0 || attachErr) && (
+        <div className="chat-attachments-row">
+          {attachments.map((a) => (
+            <span key={a.id} className="chat-attach-chip" title={`${a.name} (${(a.size / 1024).toFixed(1)} KB)`}>
+              {a.previewUrl ? (
+                <img src={a.previewUrl} alt="" className="chat-attach-thumb" />
+              ) : (
+                <span className="chat-attach-icon">📎</span>
+              )}
+              <span className="chat-attach-name">{a.name}</span>
+              <button
+                className="chat-attach-remove"
+                onClick={() => removeAttachment(a.id)}
+                title="Remove"
+                type="button"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {attachErr && (
+            <span className="chat-attach-err">{attachErr}</span>
+          )}
+        </div>
+      )}
       <div className="chat-input-row">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          onChange={onPickFiles}
+        />
+        <button
+          className="chat-attach-button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!connected || !selected || !cwd || !!activeRunRef.current}
+          title={cwd ? 'Attach files (or drag and drop)' : 'Open a project first to attach files'}
+          type="button"
+        >
+          📎
+        </button>
         <textarea
           ref={textareaRef}
           value={input}
@@ -506,7 +783,9 @@ export default function ChatPanel({
           }}
           placeholder={
             connected && selected
-              ? 'Ask for a change… (Cmd/Ctrl+Enter to send)'
+              ? attachments.length > 0
+                ? `Send ${attachments.length} attachment${attachments.length === 1 ? '' : 's'} with optional prompt… (Cmd/Ctrl+Enter)`
+                : 'Ask for a change… (Cmd/Ctrl+Enter to send)'
               : !selected
               ? 'Add a model first'
               : 'Connect the local agent to chat'
@@ -519,13 +798,22 @@ export default function ChatPanel({
         ) : (
           <button
             onClick={send}
-            disabled={!connected || !selected || !input.trim()}
+            disabled={
+              !connected ||
+              !selected ||
+              (!input.trim() && attachments.length === 0)
+            }
             className="primary"
           >
             Send
           </button>
         )}
       </div>
+      {dragActive && (
+        <div className="chat-drop-overlay">
+          Drop files to attach to your next message
+        </div>
+      )}
     </div>
   );
 }

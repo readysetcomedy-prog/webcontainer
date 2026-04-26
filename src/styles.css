@@ -1996,6 +1996,132 @@ button.primary:hover:not(:disabled) {
   border-color: var(--err);
 }
 
+.chat-panel {
+  position: relative;
+}
+
+.chat-panel-dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}
+
+.chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--fg);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 10;
+  border-radius: 6px;
+}
+
+.chat-attachments-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 2px 4px 2px 6px;
+  font-size: 11px;
+  max-width: 220px;
+}
+
+.chat-attach-thumb {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.chat-attach-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attach-remove {
+  background: transparent;
+  border: 0;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.chat-attach-remove:hover {
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.chat-attach-err {
+  font-size: 11px;
+  color: #d9534f;
+  flex-basis: 100%;
+}
+
+.chat-attach-button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+  padding: 0 8px;
+  cursor: pointer;
+  font-size: 16px;
+  align-self: stretch;
+  border-radius: 6px;
+}
+
+.chat-attach-button:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-3);
+}
+
+.chat-attach-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.chat-msg-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-3);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, monospace;
+}
+
 .agent-panel {
   width: 460px;
 }
