@@ -28,6 +28,7 @@ import {
   deleteProjectRemote,
   fetchProjects,
   findOrCreateProject,
+  renameGroup,
   updateProjectFields,
 } from './lib/projectsRemote';
 import { supabase } from './lib/supabase';
@@ -729,7 +730,7 @@ export default function App() {
   );
 
   const createLocalProjectFromUI = useCallback(
-    async (name: string, path: string) => {
+    async (name: string, path: string, groupName?: string | null) => {
       if (!session) throw new Error('Sign in first.');
       if (!agentInfo) throw new Error('Connect the local agent first.');
       const project = await createLocalProject(
@@ -737,6 +738,7 @@ export default function App() {
         name,
         agentInfo.host,
         path,
+        groupName,
       );
       setProjects((prev) => [project, ...prev]);
       // Activate it; the watcher useEffect will mount disk -> WebContainer.
@@ -749,6 +751,51 @@ export default function App() {
       notify('success', `Opened ${path}`);
     },
     [agentInfo, log, notify, session, stopDev],
+  );
+
+  const setProjectGroup = useCallback(
+    async (id: string, groupName: string | null) => {
+      try {
+        const saved = await updateProjectFields(id, { groupName });
+        setProjects((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+        log(
+          groupName
+            ? `Moved "${saved.name}" to group "${groupName}"`
+            : `Removed "${saved.name}" from its group`,
+          'info',
+        );
+      } catch (e) {
+        log(`Set group failed: ${(e as Error).message}`, 'err');
+        notify('error', `Set group failed: ${(e as Error).message}`);
+      }
+    },
+    [log, notify],
+  );
+
+  const renameProjectGroup = useCallback(
+    async (fromName: string, toName: string) => {
+      if (!session) return;
+      try {
+        await renameGroup(session.user.id, fromName, toName);
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.groupName === fromName
+              ? { ...p, groupName: toName.trim() || null }
+              : p,
+          ),
+        );
+        log(
+          toName.trim()
+            ? `Renamed group "${fromName}" → "${toName}"`
+            : `Ungrouped every project that was in "${fromName}"`,
+          'info',
+        );
+      } catch (e) {
+        log(`Rename group failed: ${(e as Error).message}`, 'err');
+        notify('error', `Rename group failed: ${(e as Error).message}`);
+      }
+    },
+    [log, notify, session],
   );
 
   const setProjectLocalPath = useCallback(
@@ -1498,6 +1545,8 @@ export default function App() {
               onCreateLocal={createLocalProjectFromUI}
               onRename={renameProject}
               onDelete={deleteProject}
+              onSetGroup={setProjectGroup}
+              onRenameGroup={renameProjectGroup}
             />
           </div>
           <div className="sidebar-divider">Files</div>

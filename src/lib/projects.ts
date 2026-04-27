@@ -1,6 +1,11 @@
 export interface Project {
   id: string;
   name: string;
+  // Optional grouping label (e.g. "Medicgame"). Multiple projects with the
+  // same group_name are rendered together in the sidebar, so a user can
+  // keep "main branch", "feature-x branch", and "local folder" together
+  // under one heading.
+  groupName: string | null;
   // GitHub coordinates: present for projects that originated from a repo
   // OR have been linked to one for push/pull. Null for local-only projects
   // that have never been wired up to a remote.

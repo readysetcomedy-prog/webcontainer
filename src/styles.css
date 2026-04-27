@@ -1141,6 +1141,99 @@ button.primary:hover:not(:disabled) {
   margin-right: 4px;
 }
 
+.project-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-group.ungrouped {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.project-group.ungrouped:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
+
+.project-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin: 4px 4px 0;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-group-header:hover {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+
+.project-group-header.editing {
+  padding: 4px 6px;
+  margin: 4px 4px 0;
+}
+
+.project-group-header.editing input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.project-group-caret {
+  width: 10px;
+  display: inline-block;
+}
+
+.project-group-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--fg);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-group-count {
+  font-size: 10px;
+  color: var(--fg-dim);
+  background: var(--bg-3);
+  border-radius: 8px;
+  padding: 0 6px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.project-group-rename {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.project-group-header:hover .project-group-rename {
+  opacity: 1;
+}
+
+.project-group-input {
+  flex: 1 1 100%;
+  margin-top: 4px;
+}
+
 .project-icon {
   display: inline-block;
   width: 12px;
