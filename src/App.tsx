@@ -457,6 +457,26 @@ export default function App() {
       // next bundle (the entry.bundle 500 / "MIME type application/json"
       // errors come from there).
       let dev;
+      if (isExpo) {
+        // Belt and suspenders: nuke the on-disk caches that survive
+        // npm install and the --clear flag's cleanup. node_modules/.cache
+        // is Metro's transformer cache; .expo is Expo CLI's project
+        // cache; .metro is some plugins' overflow. After a project
+        // switch any of those can hold references to files that no
+        // longer exist in the new tree.
+        for (const dir of ['/node_modules/.cache', '/.expo', '/.expo-shared', '/.metro']) {
+          try {
+            const rm = await c.spawn('rm', ['-rf', dir]);
+            if (runGenRef.current !== gen) {
+              try { rm.kill(); } catch {}
+              return;
+            }
+            await rm.exit;
+          } catch {
+            // dir didn't exist — fine
+          }
+        }
+      }
       if (!startScript && isExpo) {
         setStatus('starting (expo start --web --clear)…');
         log('$ npx expo start --web --clear', 'info');
@@ -466,6 +486,14 @@ export default function App() {
         setStatus('installed (no start script)');
         setRunning(false);
         return;
+      } else if (isExpo) {
+        // The user has a `web`/`start`/`dev` script but it's an Expo
+        // project. Forward --clear through `npm run` so Metro still
+        // gets the fresh-cache flag even though we're not invoking
+        // expo directly.
+        setStatus(`starting (npm run ${startScript} -- --clear)…`);
+        log(`$ npm run ${startScript} -- --clear`, 'info');
+        dev = await c.spawn('npm', ['run', startScript, '--', '--clear']);
       } else {
         setStatus(`starting (npm run ${startScript})…`);
         log(`$ npm run ${startScript}`, 'info');
