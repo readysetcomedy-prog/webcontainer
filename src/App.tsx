@@ -219,6 +219,10 @@ export default function App() {
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
+  const activeProjectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
   const currentLocalPath: string | null =
@@ -394,6 +398,13 @@ export default function App() {
     filesRef.current = files;
   }, [files]);
 
+  // Track which project's deps are currently sitting in WebContainer's
+  // /node_modules. If you switch to a different project we wipe before
+  // installing — node_modules is shared across project boots in this
+  // container, and Expo's peer-dep web is too brittle to survive
+  // leftovers from a different project's tree.
+  const installedForProjectRef = useRef<string | null>(null);
+
   // A generation token bumped any time the active project / path changes.
   // runDev captures it once at the top of the call; every await checks
   // that the token is still current and bails if not. Without this, a
@@ -432,13 +443,42 @@ export default function App() {
         ? ['web', 'start', 'dev']
         : ['dev', 'start', 'serve'];
       const startScript = order.find((name) => scripts[name]) ?? null;
+
+      // Project changed since the last install? Wipe node_modules so the
+      // new tree gets a clean install. Stay quiet otherwise — same
+      // project re-runs (HMR config edit, manual Run) keep the cache
+      // and reinstall fast.
+      const projectId = activeProjectIdRef.current;
+      const projectChanged =
+        !!projectId && installedForProjectRef.current !== projectId;
+      if (projectChanged) {
+        setStatus('clearing previous project node_modules…');
+        log('$ rm -rf /node_modules /package-lock.json', 'info');
+        for (const dir of ['/node_modules', '/package-lock.json']) {
+          try {
+            const rm = await c.spawn('rm', ['-rf', dir]);
+            if (runGenRef.current !== gen) {
+              try { rm.kill(); } catch {}
+              return;
+            }
+            await rm.exit;
+          } catch {
+            // already absent
+          }
+        }
+      }
+
       setRunning(true);
       setStatus('installing dependencies…');
-      log('$ npm install', 'info');
-      const install = await c.spawn('npm', ['install']);
+      // Expo's web target peer-deps tree doesn't satisfy npm's strict
+      // resolver in many template versions; --legacy-peer-deps is what
+      // every Expo doc recommends and what every CI uses.
+      const installArgs = isExpo
+        ? ['install', '--legacy-peer-deps']
+        : ['install'];
+      log(`$ npm ${installArgs.join(' ')}`, 'info');
+      const install = await c.spawn('npm', installArgs);
       if (runGenRef.current !== gen) {
-        // A newer project took over while we were spawning; stop here
-        // before piping output that doesn't belong.
         try { install.kill(); } catch {}
         return;
       }
@@ -451,6 +491,7 @@ export default function App() {
         setRunning(false);
         return;
       }
+      installedForProjectRef.current = projectId ?? null;
       // Expo with no explicit web script: invoke `expo start --web` directly.
       // Pass --clear so Metro starts with a fresh cache — between project
       // switches its cache from the previous project routinely poisons the
