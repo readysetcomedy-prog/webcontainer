@@ -33,9 +33,15 @@ function shortLabel(u: string): string {
 export default function Preview({
   url,
   status,
+  devError,
+  onDismissError,
+  onJumpToTerminal,
 }: {
   url: string | null;
   status: string;
+  devError?: string | null;
+  onDismissError?: () => void;
+  onJumpToTerminal?: () => void;
 }) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -214,6 +220,32 @@ export default function Preview({
         />
         <span className="preview-status">{status}</span>
       </div>
+      {devError && (
+        <div className="preview-error">
+          <div className="preview-error-head">
+            <span className="preview-error-icon">⚠</span>
+            <span className="preview-error-title">Dev server error</span>
+            {onJumpToTerminal && (
+              <button
+                className="link-button preview-error-action"
+                onClick={onJumpToTerminal}
+              >
+                Open terminal
+              </button>
+            )}
+            {onDismissError && (
+              <button
+                className="link-button preview-error-action"
+                onClick={onDismissError}
+                title="Hide until next error"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <pre className="preview-error-body">{devError}</pre>
+        </div>
+      )}
       <div className="preview-frames">
         {tabs.length === 0 && (
           <div className="preview-empty">

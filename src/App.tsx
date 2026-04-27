@@ -389,6 +389,43 @@ export default function App() {
     [],
   );
 
+  // Bundler / dev-server error surfaced above the preview. Stripped of
+  // ANSI codes and shown to the user so they don't have to dig through
+  // the terminal to find what broke.
+  const [devError, setDevError] = useState<string | null>(null);
+  // Pipes the dev process's output through the same logs panel as
+  // pipeProcess, but additionally scans for known error signatures and
+  // bubbles them up to the studio surface. Cleared on the next
+  // successful "Bundled" / "ready" line.
+  const stripAnsi = (s: string) =>
+    // eslint-disable-next-line no-control-regex
+    s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  const ERROR_HINT = /(^|\n)\s*(error:|SyntaxError:|TypeError:|Bundling failed|Failed to compile|Unable to resolve module|Cannot find module|Module not found)/i;
+  const SUCCESS_HINT = /(Web Bundled|Bundled \d+ms|compiled successfully|ready in \d+ms|Local:\s+http)/i;
+  const pipeDev = useCallback(
+    (p: WebContainerProcess) => {
+      let buffer = '';
+      p.output.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+            setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind: 'out' }]);
+            buffer = (buffer + stripAnsi(text)).slice(-4000); // keep last few KB
+            if (ERROR_HINT.test(buffer)) {
+              // Grab the error line + the next ~6 lines of context.
+              const idx = buffer.search(ERROR_HINT);
+              const tail = buffer.slice(idx).split('\n').slice(0, 8).join('\n').trim();
+              setDevError(tail);
+            } else if (SUCCESS_HINT.test(buffer)) {
+              setDevError(null);
+            }
+          },
+        }),
+      );
+    },
+    [],
+  );
+
   // Stable ref so callers (including effects) can rely on runDev's
   // identity not changing every time the file list updates. Without this
   // the auto-resync effect would re-run -> re-runDev -> setFiles ->
@@ -545,7 +582,8 @@ export default function App() {
         return;
       }
       devProcRef.current = dev;
-      pipeProcess(dev);
+      pipeDev(dev);
+      setDevError(null); // fresh boot wipes the previous error banner
       dev.exit.then((exitCode) => {
         // If a newer dev process has replaced us (because we restarted
         // after a pull or full re-sync), let it own the state. Otherwise
@@ -1075,6 +1113,7 @@ export default function App() {
       // the previous project's files into the new project's WebContainer.
       cancelScheduledRestart();
       stopDev();
+      setDevError(null);
       off();
     };
   }, [
@@ -1764,7 +1803,13 @@ export default function App() {
         </Panel>
         <Separator className="resize-x" />
         <Panel defaultSize={40} minSize={20} data-tour="preview-pane">
-          <Preview url={previewUrl} status={status} />
+          <Preview
+            url={previewUrl}
+            status={status}
+            devError={devError}
+            onDismissError={() => setDevError(null)}
+            onJumpToTerminal={() => setBottomTab('terminal')}
+          />
         </Panel>
       </Group>
     </div>
