@@ -394,10 +394,18 @@ export default function App() {
     filesRef.current = files;
   }, [files]);
 
+  // A generation token bumped any time the active project / path changes.
+  // runDev captures it once at the top of the call; every await checks
+  // that the token is still current and bails if not. Without this, a
+  // slow `npm install` from project A could keep streaming output and
+  // eventually call setPreviewUrl on the wrong project.
+  const runGenRef = useRef(0);
+
   const runDev = useCallback(
     async (filesOverride?: FileEntry[]) => {
       const c = containerRef.current;
       if (!c) return;
+      const gen = ++runGenRef.current;
       const projectFiles = filesOverride ?? filesRef.current;
       const pkg = projectFiles.find((f) => f.path === 'package.json');
       if (!pkg) {
@@ -428,8 +436,15 @@ export default function App() {
       setStatus('installing dependencies…');
       log('$ npm install', 'info');
       const install = await c.spawn('npm', ['install']);
+      if (runGenRef.current !== gen) {
+        // A newer project took over while we were spawning; stop here
+        // before piping output that doesn't belong.
+        try { install.kill(); } catch {}
+        return;
+      }
       pipeProcess(install);
       const code = await install.exit;
+      if (runGenRef.current !== gen) return;
       if (code !== 0) {
         log(`npm install exited with code ${code}`, 'err');
         setStatus('install failed');
@@ -437,11 +452,15 @@ export default function App() {
         return;
       }
       // Expo with no explicit web script: invoke `expo start --web` directly.
+      // Pass --clear so Metro starts with a fresh cache — between project
+      // switches its cache from the previous project routinely poisons the
+      // next bundle (the entry.bundle 500 / "MIME type application/json"
+      // errors come from there).
       let dev;
       if (!startScript && isExpo) {
-        setStatus('starting (expo start --web)…');
-        log('$ npx expo start --web', 'info');
-        dev = await c.spawn('npx', ['expo', 'start', '--web']);
+        setStatus('starting (expo start --web --clear)…');
+        log('$ npx expo start --web --clear', 'info');
+        dev = await c.spawn('npx', ['expo', 'start', '--web', '--clear']);
       } else if (!startScript) {
         log('No dev/start/serve/web script found in package.json.', 'info');
         setStatus('installed (no start script)');
@@ -451,6 +470,10 @@ export default function App() {
         setStatus(`starting (npm run ${startScript})…`);
         log(`$ npm run ${startScript}`, 'info');
         dev = await c.spawn('npm', ['run', startScript]);
+      }
+      if (runGenRef.current !== gen) {
+        try { dev.kill(); } catch {}
+        return;
       }
       devProcRef.current = dev;
       pipeProcess(dev);
@@ -487,10 +510,16 @@ export default function App() {
   // configs, then wait for the file flood to quiet down before booting
   // the new one. Each new request resets the timer.
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScheduledRestart = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
   const scheduleRestart = useCallback(
     (filesOverride?: FileEntry[]) => {
       stopDev();
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      cancelScheduledRestart();
       const snapshot = filesOverride;
       restartTimerRef.current = setTimeout(() => {
         restartTimerRef.current = null;
@@ -499,7 +528,7 @@ export default function App() {
         );
       }, 800);
     },
-    [log, runDev, stopDev],
+    [cancelScheduledRestart, log, runDev, stopDev],
   );
 
 
@@ -969,12 +998,21 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      // Bump the generation so any in-flight runDev (npm install, dev
+      // spawn) for this project bails before it can step on the new
+      // project's setState calls.
+      runGenRef.current++;
+      // Cancel any restart that hadn't fired yet — otherwise it'd boot
+      // the previous project's files into the new project's WebContainer.
+      cancelScheduledRestart();
+      stopDev();
       off();
     };
   }, [
     agentMode,
     activeProject,
     currentLocalPath,
+    cancelScheduledRestart,
     log,
     notify,
     loadFromAgent,
