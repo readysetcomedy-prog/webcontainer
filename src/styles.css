@@ -64,6 +64,71 @@ html, body, #root {
   margin-left: auto;
 }
 
+.toolbar-active-project {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 4px 10px;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 360px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.toolbar-active-group {
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.toolbar-active-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.deploy-target {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: center;
+}
+
+.deploy-target-label {
+  color: var(--fg-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.deploy-target-value {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deploy-target-group {
+  color: var(--fg-dim);
+}
+
+.deploy-target-value code {
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
 button {
   background: var(--bg-3);
   color: var(--fg);

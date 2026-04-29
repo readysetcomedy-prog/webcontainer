@@ -66,8 +66,19 @@ export default function App() {
   const [exampleEnv, setExampleEnv] = useState<string | null>(null);
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(() => new Set());
   const [projects, setProjects] = useState<Project[]>([]);
+  // Per-tab active project. We DON'T fall back to lastActiveProjectId
+  // (which is shared across tabs via Supabase) until we've checked
+  // sessionStorage first — otherwise opening a second tab would
+  // silently inherit whatever project the most recent tab touched, and
+  // the user could deploy/push to the wrong site without realising it.
   const [activeProjectId, setActiveProjectIdState] = useState<string | null>(
-    null,
+    () => {
+      try {
+        return sessionStorage.getItem('activeProjectId');
+      } catch {
+        return null;
+      }
+    },
   );
   const [session, setSession] = useState<Session | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -143,7 +154,18 @@ export default function App() {
         setGhTokenState(secrets.githubToken);
         setNetlifyTokenState(secrets.netlifyToken);
         setModels(secrets.models);
-        if (
+        // Honour what this tab already had in sessionStorage; only fall
+        // back to the cross-tab lastActiveProjectId if this tab is fresh.
+        const tabActive = (() => {
+          try {
+            return sessionStorage.getItem('activeProjectId');
+          } catch {
+            return null;
+          }
+        })();
+        if (tabActive && projs.some((p) => p.id === tabActive)) {
+          setActiveProjectIdState(tabActive);
+        } else if (
           secrets.lastActiveProjectId &&
           projs.some((p) => p.id === secrets.lastActiveProjectId)
         ) {
@@ -222,6 +244,15 @@ export default function App() {
   const activeProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
+    try {
+      if (activeProjectId) {
+        sessionStorage.setItem('activeProjectId', activeProjectId);
+      } else {
+        sessionStorage.removeItem('activeProjectId');
+      }
+    } catch {
+      // session storage disabled (private mode in some browsers); fine
+    }
   }, [activeProjectId]);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;

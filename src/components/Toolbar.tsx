@@ -126,6 +126,25 @@ export default function Toolbar({
           </span>
         )}
       </div>
+      {activeProject && (
+        <div
+          className="toolbar-active-project"
+          title={
+            activeProject.owner && activeProject.repo
+              ? `${activeProject.owner}/${activeProject.repo}${
+                  activeProject.branch ? `@${activeProject.branch}` : ''
+                }`
+              : activeProject.localPath ?? activeProject.name
+          }
+        >
+          {activeProject.groupName && (
+            <span className="toolbar-active-group">
+              {activeProject.groupName} ›
+            </span>
+          )}
+          <span className="toolbar-active-name">{activeProject.name}</span>
+        </div>
+      )}
       {activeProject && activeProject.owner && activeProject.repo && token && currentBranch && (
         <div data-tour="branch-picker">
           <BranchPicker
@@ -345,6 +364,31 @@ export default function Toolbar({
       {deployOpen && (
         <div className="popover">
           <div className="popover-title">Deploy to Netlify</div>
+          <div className="deploy-target">
+            <div className="deploy-target-label">From project</div>
+            <div className="deploy-target-value">
+              {activeProject ? (
+                <>
+                  {activeProject.groupName && (
+                    <span className="deploy-target-group">
+                      {activeProject.groupName} ›{' '}
+                    </span>
+                  )}
+                  <strong>{activeProject.name}</strong>
+                </>
+              ) : (
+                <em>(no project active)</em>
+              )}
+            </div>
+            <div className="deploy-target-label">To Netlify site</div>
+            <div className="deploy-target-value">
+              {siteId ? (
+                <code>{siteId}</code>
+              ) : (
+                <em>create a new site</em>
+              )}
+            </div>
+          </div>
           <div className="popover-hint">
             Builds the project and uploads the result to Netlify. Paste a
             Netlify personal access token below. Leave the site id blank to
