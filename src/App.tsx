@@ -3,6 +3,8 @@ import type { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import Toolbar from './components/Toolbar';
 import FileTree from './components/FileTree';
+import SearchPanel from './components/SearchPanel';
+import type { JumpTarget } from './components/CodeEditor';
 import CodeEditor from './components/CodeEditor';
 import Preview from './components/Preview';
 import Terminal from './components/Terminal';
@@ -53,6 +55,7 @@ const textOf = (c: string | Uint8Array): string =>
 export default function App() {
   const [files, setFiles] = useState<FileEntry[]>(STARTER_FILES);
   const [activePath, setActivePath] = useState<string | null>('src/App.jsx');
+  const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState('idle');
   const [booting, setBooting] = useState(false);
@@ -1726,6 +1729,22 @@ export default function App() {
               onRenameGroup={renameProjectGroup}
             />
           </div>
+          <div className="sidebar-divider">Search</div>
+          <div data-tour="search-panel">
+            <SearchPanel
+              files={files}
+              resetKey={activeProjectId}
+              onJumpTo={(hit) => {
+                setActivePath(hit.path);
+                setJumpTarget({
+                  path: hit.path,
+                  line: hit.line,
+                  column: hit.column,
+                  nonce: Date.now(),
+                });
+              }}
+            />
+          </div>
           <div className="sidebar-divider">Files</div>
           <div data-tour="file-tree">
             <FileTree files={files} activePath={activePath} onSelect={setActivePath} />
@@ -1771,6 +1790,7 @@ export default function App() {
                     }
                     onChange={updateActiveFile}
                     binary={activeFileIsBinary}
+                    jumpTo={jumpTarget}
                   />
                 </div>
               </div>
