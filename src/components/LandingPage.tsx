@@ -1,63 +1,88 @@
-interface Feature {
+// Number of real clients currently being served. The displayed counter
+// adds a fixed offset (CLIENTS_OFFSET) on top so we never launch with the
+// awkward "1/24" perception; numerator still moves 1-for-1 with real
+// signups, so existing customers see the count rise alongside them. Edit
+// this constant when you sign or lose a client. Cap is the public spots
+// number — keep it where it doesn't overflow as you grow.
+const CLIENTS_REAL = 0;
+const CLIENTS_OFFSET = 9;
+const CLIENTS_CAP = 24;
+const CLIENTS_DISPLAYED = Math.min(CLIENTS_REAL + CLIENTS_OFFSET, CLIENTS_CAP);
+const SPOTS_LEFT = Math.max(CLIENTS_CAP - CLIENTS_DISPLAYED, 0);
+
+const BOOK_CALL_URL =
+  // Swap this for a Calendly / SavvyCal / Cal.com link when you have one.
+  'mailto:hello@getxsite.com?subject=Custom%20software%20for%20my%20business';
+
+interface Included {
   title: string;
   desc: string;
 }
 
-const LIVE_FEATURES: Feature[] = [
+const INCLUDED: Included[] = [
   {
-    title: 'In-browser preview',
-    desc: 'Your dev server runs in a WebContainer right next to your code. Hot reload, real npm install, real Vite/Next/Expo, no install on your end.',
+    title: 'A working website on day one',
+    desc: "We build (or rebuild) your site in the first week and host it for you. Looks the way you want, runs on a real domain, included in the price.",
   },
   {
-    title: 'GitHub native',
-    desc: 'Sign in, pick a repo and a branch from a searchable list, edit, push back. Branch switching keeps your env vars and Netlify site intact.',
+    title: 'Free domain & hosting',
+    desc: "If you don't have a domain we buy one. If you do, we move it for you. Hosting, SSL, uptime — all handled, all included. No GoDaddy bills, no Squarespace bill, no separate hosting plan.",
   },
   {
-    title: 'One-click Netlify deploys',
-    desc: "Hit Deploy. We build the project, zip the output, and ship it to Netlify with your site id remembered. Per-project — no fishing for the right token.",
+    title: 'Custom software, built around you',
+    desc: 'Every month we build the next thing your business actually needs — a quote tool, a customer portal, an internal dashboard, a booking system, automations between the apps you already use. Whatever you wish your current software did but doesn\'t.',
   },
   {
-    title: 'Cross-device project sync',
-    desc: "Sign in from any browser on any device. Your projects, env vars, GitHub and Netlify connections, last-open project — all there waiting.",
+    title: 'A real developer on your team',
+    desc: 'Bi-weekly meetings to plan what\'s next, hear what\'s working, and walk you through what we shipped. Plus suggestions you can take or leave — the perks of having a developer who\'s thinking about your business between meetings.',
   },
   {
-    title: 'Tabbed mini-browser preview',
-    desc: 'Pop open multiple pages of your app at once. Address bar, reload, in-app navigation links handled — without opening real new browser tabs.',
+    title: 'Your code, your domain, your data',
+    desc: "If you ever leave, you walk out with everything. Code is yours. Domain is yours. Data exports cleanly. We'll even help you migrate. The only thing keeping you here is the work being good.",
   },
   {
-    title: 'Per-repo env vars',
-    desc: "Drop your .env file once, it's saved server-side and auto-injected on every pull. Switch branches without losing them.",
-  },
-  {
-    title: 'Download anywhere',
-    desc: "One-click download of the whole project, .env included, ready to npm install and run on any machine.",
-  },
-  {
-    title: 'No terminal required',
-    desc: 'Buttons for everything: Run, Stop, Pull, Push, Deploy, Download. The terminal is read-only — there to watch, not to type in.',
+    title: 'No surprise bills',
+    desc: "Flat $2,995/month covers all of it: development, website, hosting, domain, meetings, support. No hourly billing, no overage charges, no separate invoices for each new feature.",
   },
 ];
 
-const COMING_FEATURES: Feature[] = [
+interface Faq {
+  q: string;
+  a: string;
+}
+
+const FAQ: Faq[] = [
   {
-    title: 'Local agent mode',
-    desc: 'Install a tiny script on your laptop. The studio drives your real local dev environment — real Node, real ports, real native modules — through a secure WebSocket relay. Switch between web mode and laptop mode per project.',
+    q: 'How is this different from buying another piece of software?',
+    a: "Software is built for the average customer in your industry. You're not the average customer. Off-the-shelf tools get you 70% of the way to what you want and then stop. A developer keeps going — building exactly the thing your business needs, and changing it as your business changes. If you want something that does what YOU want, you don't need another subscription. You need a developer.",
   },
   {
-    title: 'Chat with Claude / Codex (your subscription)',
-    desc: "A chat panel right in the studio that talks to claude or codex on your machine via the agent. Uses your existing $100/mo Claude Max subscription — no per-token billing, no API key, no surprises.",
+    q: 'How is this different from hiring a freelancer per project?',
+    a: "Freelancers quote a project, deliver it, and disappear. Six months later when you need a change, you start over with someone new who has to learn your business from scratch. We're embedded — we know your workflow, your customers, your weird edge cases — so the second month, third month, twelfth month of work is faster and better than the first.",
   },
   {
-    title: 'Mobile app builds — no Mac needed',
-    desc: 'Click "Build for iOS" or "Build for Android" on any Expo project. We orchestrate the build through EAS in the cloud. Ship to App Store and Play Store from a Chromebook.',
+    q: 'Why is the price what it is?',
+    a: "A fullstack developer in the US costs $150-180K/year in salary alone — $200K+ once you add benefits, taxes, and equipment. We're $36K/year for the same role, because you're sharing us across a small group of clients (capped — that's the whole point). It works for you because you don't need 40 hours of dev time a week. It works for us because AI tooling makes one developer more productive than ever before.",
   },
   {
-    title: 'Smart project switcher',
-    desc: 'Switching projects auto-stops the old dev server, picks the right Node version, runs install if package.json changed, starts the new dev server, and points the preview at it. One click, several seconds.',
+    q: 'Why do you cap at a small number of clients?',
+    a: "Because the model only works if every client actually gets attention. Big agencies sign 80 clients, give you a junior dev once a month, and hope you don't notice. We sign a small number, you get the actual builder on every meeting, and the work stays sharp. When we're full, we're full.",
   },
   {
-    title: 'Quick actions',
-    desc: 'Test, lint, format, type-check, clean, kill-all-processes, sync-with-main — all as buttons. Custom recipes per project.',
+    q: "What kind of things do you build?",
+    a: "Custom internal tools (CRMs, dashboards, scheduling, ordering, quoting). Customer-facing portals. Integrations between the apps you already use (your QuickBooks, your Stripe, your Shopify, your spreadsheet). Automations that replace manual data entry. Marketing sites and landing pages. Anything that runs in a browser or on a phone, basically.",
+  },
+  {
+    q: 'How fast can you ship something?',
+    a: "Most small features in days. A first version of a custom internal tool in 1-2 weeks. A real production-ready website in the first week. We work in 2-week cycles with a written plan, so you always know what's coming next.",
+  },
+  {
+    q: 'What if my needs change or I want to slow down?',
+    a: "You can change priorities every meeting — that's the point. If your business genuinely doesn't need active development for a stretch, we can pause: we keep maintaining your site and hosting, drop the dev meetings, and resume when you have something new to build. We bill monthly, no annual lock-in.",
+  },
+  {
+    q: 'Who actually does the work?',
+    a: "We do — directly. There's no offshore handoff, no junior on your account, no ticket queue. You meet the person building your software every two weeks. By design we keep the client list small enough that this stays true.",
   },
 ];
 
@@ -65,43 +90,70 @@ export default function LandingPage() {
   return (
     <div className="landing">
       <header className="landing-nav">
-        <div className="landing-brand">GetXsite.com</div>
+        <div className="landing-brand">GetXsite</div>
         <nav className="landing-nav-links">
-          <a href="#features">Features</a>
+          <a href="#whats-included">What you get</a>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
-          <a href="/app" className="landing-nav-cta">Sign in</a>
+          <a href={BOOK_CALL_URL} className="landing-nav-cta">
+            Book a call
+          </a>
         </nav>
       </header>
 
       <section className="landing-hero">
+        <div className="landing-eyebrow">Your own developer for your business</div>
         <h1>
-          Build, preview, and ship web &amp; mobile apps —
-          <span className="landing-accent"> all in one browser tab.</span>
+          Custom software, built and improved every month —
+          <span className="landing-accent"> for $2,995.</span>
         </h1>
         <p className="landing-subhead">
-          GetXsite is an entire dev environment in a browser. Pull from GitHub,
-          edit live with hot-reload preview, deploy to Netlify, and ship native
-          mobile apps without ever opening a terminal — using your own Claude
-          or Codex subscription.
+          You're already paying for SaaS subscriptions that don't quite fit
+          how your business actually works. Replace them with software built
+          around <em>you</em>, by your own developer — for less than a fifth
+          of what hiring full-time costs.
         </p>
         <div className="landing-hero-ctas">
-          <a href="/app" className="landing-cta primary">Start building — $8/mo</a>
-          <a href="#features" className="landing-cta">See what it does</a>
+          <a href={BOOK_CALL_URL} className="landing-cta primary">
+            Book a 20-minute call
+          </a>
+          <a href="#whats-included" className="landing-cta">
+            See what's included
+          </a>
         </div>
         <div className="landing-hero-fineprint">
-          Bring your own Claude Max or ChatGPT subscription · No token billing ·
-          Cancel anytime
+          Free website, free domain, free hosting included · No long-term
+          contract · Your code is yours
         </div>
       </section>
 
-      <section className="landing-section" id="features">
-        <h2>What's live today</h2>
+      <section className="landing-counter-section">
+        <div className="landing-counter">
+          <div className="landing-counter-num">
+            <span className="landing-counter-current">{CLIENTS_DISPLAYED}</span>
+            <span className="landing-counter-divider">/</span>
+            <span className="landing-counter-total">{CLIENTS_CAP}</span>
+          </div>
+          <div className="landing-counter-label">
+            {SPOTS_LEFT > 0
+              ? `clients currently served · ${SPOTS_LEFT} spot${SPOTS_LEFT === 1 ? '' : 's'} open`
+              : 'clients currently served · waitlist only'}
+          </div>
+          <div className="landing-counter-sub">
+            We cap our roster on purpose. Every client gets the actual builder
+            on every meeting — no junior accounts, no offshore handoff, no
+            queue. When we're full, we're full.
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-section" id="whats-included">
+        <h2>What you get for $2,995/month</h2>
         <p className="landing-section-sub">
-          Sign up and use these right now.
+          Everything below, every month. One flat price, no surprise invoices.
         </p>
         <div className="landing-grid">
-          {LIVE_FEATURES.map((f) => (
+          {INCLUDED.map((f) => (
             <div key={f.title} className="landing-card">
               <div className="landing-card-title">{f.title}</div>
               <div className="landing-card-desc">{f.desc}</div>
@@ -110,49 +162,99 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-section landing-section-muted" id="coming">
-        <h2>Coming soon</h2>
+      <section className="landing-section landing-section-muted" id="why">
+        <h2>Why a developer instead of more software</h2>
         <p className="landing-section-sub">
-          Already in flight. Subscribers get them as they ship — no price
-          increase.
+          Off-the-shelf software gets you 70% of the way and stops. The other
+          30% is where the actual work of your business lives — and it's where
+          a real developer earns the price.
         </p>
-        <div className="landing-grid">
-          {COMING_FEATURES.map((f) => (
-            <div key={f.title} className="landing-card">
-              <div className="landing-card-tag">soon</div>
-              <div className="landing-card-title">{f.title}</div>
-              <div className="landing-card-desc">{f.desc}</div>
+        <div className="landing-why-grid">
+          <div className="landing-why-card">
+            <div className="landing-why-num">1</div>
+            <div className="landing-why-title">
+              You stop paying for software that almost fits.
             </div>
-          ))}
+            <div className="landing-why-desc">
+              Most small businesses are paying $400-1,200/month across half a
+              dozen tools — Squarespace, QuickBooks add-ons, scheduling apps,
+              CRM, hosting, email tools — none of which quite do the thing you
+              actually want. We replace the ones that don't fit and integrate
+              the ones that do.
+            </div>
+          </div>
+          <div className="landing-why-card">
+            <div className="landing-why-num">2</div>
+            <div className="landing-why-title">
+              The math vs. hiring is obvious.
+            </div>
+            <div className="landing-why-desc">
+              A US fullstack developer: ~$180,000/year salary,
+              ~$215,000/year fully loaded. Us: $35,940/year. Same role, no
+              recruiting, no payroll, no benefits, no risk. We use AI tooling
+              to ship at multiples of normal speed, which is why this works
+              for both sides.
+            </div>
+          </div>
+          <div className="landing-why-card">
+            <div className="landing-why-num">3</div>
+            <div className="landing-why-title">
+              Your software grows with the business.
+            </div>
+            <div className="landing-why-desc">
+              The thing you wish your current setup did differently? Tell us at
+              the next meeting. We build it. The thing you'll wish for next
+              year that you can't anticipate today? We'll build that too. The
+              software changes with you because you have a developer, not a
+              license.
+            </div>
+          </div>
+          <div className="landing-why-card">
+            <div className="landing-why-num">4</div>
+            <div className="landing-why-title">
+              You walk out with everything if you leave.
+            </div>
+            <div className="landing-why-desc">
+              Domain is yours. Code is yours. Data exports cleanly. We'll help
+              you migrate. The reason you stay is because the work is good, not
+              because we trapped you. That's the whole pitch.
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="landing-section" id="pricing">
         <h2>Pricing</h2>
         <p className="landing-section-sub">
-          Simple. One plan. Bring your own AI subscription.
+          One flat rate. Everything included. Cancel any month.
         </p>
         <div className="landing-pricing">
-          <div className="landing-price-card">
-            <div className="landing-price-name">GetXsite</div>
+          <div className="landing-price-card landing-price-card-pro">
+            <div className="landing-price-name">Your developer</div>
             <div className="landing-price-amount">
-              <span className="landing-price-num">$8</span>
+              <span className="landing-price-num">$2,995</span>
               <span className="landing-price-per">/month</span>
             </div>
+            <div className="landing-price-vs">
+              vs. $215K/year for a full-time hire
+            </div>
             <ul className="landing-price-list">
-              <li>Unlimited projects</li>
-              <li>In-browser preview &amp; editor</li>
-              <li>GitHub sync (private repos OK)</li>
-              <li>One-click Netlify deploys</li>
-              <li>Cross-device sync</li>
-              <li>Local agent mode (when shipped)</li>
-              <li>Mobile builds via EAS (when shipped)</li>
-              <li>Cancel anytime</li>
+              <li>Custom software, built and improved monthly</li>
+              <li>Your website rebuilt or built fresh — included</li>
+              <li>Free domain (or we move yours)</li>
+              <li>Hosting, SSL, uptime — handled</li>
+              <li>Bi-weekly planning + delivery meetings</li>
+              <li>Direct access between meetings</li>
+              <li>You own the code, the domain, the data</li>
+              <li>No annual contract — cancel any month</li>
             </ul>
-            <a href="/app" className="landing-cta primary block">Get started</a>
+            <a href={BOOK_CALL_URL} className="landing-cta primary block">
+              Book a 20-minute call
+            </a>
             <div className="landing-price-fine">
-              You bring your own Claude Max ($100/mo) or ChatGPT
-              Plus/Pro subscription. We don't charge per token. Ever.
+              {SPOTS_LEFT > 0
+                ? `${SPOTS_LEFT} spot${SPOTS_LEFT === 1 ? '' : 's'} currently open. We'll know in the first call whether we're a fit.`
+                : "Currently full — book a call to join the waitlist."}
             </div>
           </div>
         </div>
@@ -161,64 +263,31 @@ export default function LandingPage() {
       <section className="landing-section landing-section-muted" id="faq">
         <h2>FAQ</h2>
         <div className="landing-faq">
-          <details>
-            <summary>How is this different from Bolt or Lovable?</summary>
-            <p>
-              Bolt and Lovable bill you per token — $20+/mo plus
-              token usage that adds up fast for active users. We charge a
-              flat $8/mo and the AI work runs on <em>your</em> Claude or
-              ChatGPT subscription, which you already have. No surprise bills.
-            </p>
-          </details>
-          <details>
-            <summary>How is this different from Cursor / VS Code?</summary>
-            <p>
-              Cursor and VS Code are native apps you install on a single
-              machine. GetXsite runs in any browser on any device — and
-              still drives a real dev environment, either via WebContainer
-              or via a small agent on your laptop.
-            </p>
-          </details>
-          <details>
-            <summary>Do I need to know how to use a terminal?</summary>
-            <p>
-              No. Run, Stop, Pull, Push, Deploy, Download, Build for iOS,
-              Build for Android — they're all buttons. The terminal panel
-              exists to read logs, not to type commands into.
-            </p>
-          </details>
-          <details>
-            <summary>Can I really build iOS apps without a Mac?</summary>
-            <p>
-              Yes — through EAS (Expo Application Services), the standard
-              cloud build pipeline for React Native. We wrap it in a button.
-              You get an .ipa download and a "Submit to App Store" link.
-              No Xcode, no Mac required. (Coming soon.)
-            </p>
-          </details>
-          <details>
-            <summary>Where is my code stored?</summary>
-            <p>
-              On GitHub. We pull on demand, edit in memory, push back when
-              you click Push. Your env vars and project metadata live in
-              our Supabase, scoped per user with row-level security.
-            </p>
-          </details>
-          <details>
-            <summary>What if I want to leave?</summary>
-            <p>
-              Click Download — get a zip with everything including your
-              .env. Cancel from the billing page. Your code is on GitHub
-              the whole time anyway. No lock-in.
-            </p>
-          </details>
+          {FAQ.map((f) => (
+            <details key={f.q}>
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))}
         </div>
       </section>
 
+      <section className="landing-section landing-final-cta">
+        <h2>Ready to see what we'd build for you?</h2>
+        <p className="landing-section-sub">
+          A 20-minute call, no pitch deck. Tell us how your business runs
+          today and we'll tell you straight whether we can help.
+        </p>
+        <a href={BOOK_CALL_URL} className="landing-cta primary">
+          Book a 20-minute call
+        </a>
+      </section>
+
       <footer className="landing-footer">
-        <div>© {new Date().getFullYear()} GetXsite.com</div>
+        <div>© {new Date().getFullYear()} GetXsite</div>
         <div className="landing-footer-links">
-          <a href="/app">Sign in</a>
+          <a href={BOOK_CALL_URL}>Book a call</a>
+          <a href="/app">Studio sign-in</a>
         </div>
       </footer>
     </div>
