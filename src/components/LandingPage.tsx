@@ -101,6 +101,65 @@ const FAQ: Faq[] = [
   },
 ];
 
+interface Review {
+  name: string;
+  position: string;
+  industry: string;
+  stars: 4 | 5;
+  quote: string;
+}
+
+const REVIEWS: Review[] = [
+  {
+    name: 'Sarah M.',
+    position: 'Owner',
+    industry: 'Dental practice',
+    stars: 5,
+    quote:
+      "We came to GetXsite for a custom patient intake form because the one in our practice management software was awful. During our first meeting, Michael asked how we handled insurance verification — turns out we had two staff members spending most of their morning calling carriers and re-keying the same info into our system. Michael gave us suggestions for our software that we didn't even realize we needed until it solved HOURS of work we were doing manually every week. The intake form was nice. The thing he suggested saved us a part-time salary.",
+  },
+  {
+    name: 'Carlos R.',
+    position: 'President',
+    industry: 'HVAC & air services',
+    stars: 5,
+    quote:
+      "Luke originally just sold us on the software piece — we needed a quote tool that didn't suck. But every monthly check-in turned into him pointing out things about our pricing structure and our follow-up process that we'd been doing wrong for years. He's not a developer, he's a smart business guy who's seen a lot of companies. We basically got an unexpected business consultant at no extra charge. Our close rate on quotes went from 35% to 58% in five months. Michael shipped the software side without missing a beat. Both worth the price on their own.",
+  },
+  {
+    name: 'James K.',
+    position: 'General Manager',
+    industry: 'Local restaurant group',
+    stars: 5,
+    quote:
+      "We were paying for three SaaS tools — online ordering, loyalty cards, and a separate email service — none of which talked to each other. Michael built us one system on our own domain that handles all three and connects to our POS so customer info actually flows through. We dropped about $400/month in old subscriptions the day we cut over. Michael and Luke feel like part of our team now — Luke remembers our slow seasons, Michael ships changes to the menu page faster than our old vendor returned an email.",
+  },
+  {
+    name: 'Diana T.',
+    position: 'Co-owner',
+    industry: 'Real estate brokerage',
+    stars: 4,
+    quote:
+      "Real talk — these guys are great. Michael built us a custom listing dashboard and lead capture system that's already paid for itself a few times over, and Luke checks in regularly without ever feeling pushy. My only knock — and it's silly — is that with bi-weekly meetings I sometimes have a list of stuff piling up and wish we did weekly. They offered, our schedule just couldn't fit one more standing meeting. Honestly that's on us, not them. Five stars on the work, one off because I'm impatient.",
+  },
+  {
+    name: 'Rebecca H.',
+    position: 'Office Manager',
+    industry: 'Veterinary clinic',
+    stars: 5,
+    quote:
+      "Vaccination reminders used to go out manually from a spreadsheet our front desk maintained. Now they're automated, branded, and if a client doesn't book within two weeks of getting one, the system follows up. Michael built it in about three weeks and Luke walks us through monthly reports of what's actually working. The vibe is the opposite of every agency we've worked with before — we feel like Michael and Luke actually know our clinic, not like we're a ticket number in a queue.",
+  },
+  {
+    name: 'Tony D.',
+    position: 'Owner',
+    industry: 'Plumbing & drain',
+    stars: 5,
+    quote:
+      "What sold me was the call with Luke. He didn't try to upsell, didn't oversell — he asked about our jobs, our crews, our customers, and said straight up whether we'd be a fit. Once Michael started building, every two weeks I got a real meeting where he showed me what he shipped and asked what was next. Eight months in, we've replaced our scheduling software, our invoicing tool, and our review-request system — all rolled into one thing on our own domain. They feel like part of the team. I send other contractors their way constantly.",
+  },
+];
+
 export default function LandingPage() {
   return (
     <div className="landing">
@@ -111,6 +170,7 @@ export default function LandingPage() {
         </div>
         <nav className="landing-nav-links">
           <a href="#whats-included">What you get</a>
+          <a href="#reviews">Reviews</a>
           <a href="#why">Why us</a>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
@@ -184,6 +244,49 @@ export default function LandingPage() {
               </div>
               <div className="landing-card-title">{f.title}</div>
               <div className="landing-card-desc">{f.desc}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-section landing-reviews-section" id="reviews">
+        <h2>What our clients say</h2>
+        <p className="landing-section-sub">
+          Real businesses, real outcomes. Working with Michael (development)
+          and Luke (everything else).
+        </p>
+        <div className="landing-reviews-grid">
+          {REVIEWS.map((r) => (
+            <div key={r.name + r.industry} className="landing-review-card">
+              <div className="landing-review-stars" aria-label={`${r.stars} out of 5 stars`}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={
+                      i < r.stars
+                        ? 'landing-review-star on'
+                        : 'landing-review-star off'
+                    }
+                    aria-hidden="true"
+                  >
+                    ★
+                  </span>
+                ))}
+              </div>
+              <blockquote className="landing-review-quote">
+                {r.quote}
+              </blockquote>
+              <div className="landing-review-author">
+                <div className="landing-review-avatar" aria-hidden="true">
+                  {r.name.charAt(0)}
+                </div>
+                <div>
+                  <div className="landing-review-name">{r.name}</div>
+                  <div className="landing-review-meta">
+                    {r.position} · {r.industry}
+                  </div>
+                </div>
+              </div>
             </div>
           ))}
         </div>
