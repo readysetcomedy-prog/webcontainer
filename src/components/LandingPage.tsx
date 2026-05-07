@@ -17,32 +17,39 @@ const BOOK_CALL_URL =
 interface Included {
   title: string;
   desc: string;
+  icon: string;
 }
 
 const INCLUDED: Included[] = [
   {
+    icon: '🌐',
     title: 'A working website on day one',
     desc: "We build (or rebuild) your site in the first week and host it for you. Looks the way you want, runs on a real domain, included in the price.",
   },
   {
+    icon: '🔗',
     title: 'Free domain & hosting',
     desc: "If you don't have a domain we buy one. If you do, we move it for you. Hosting, SSL, uptime — all handled, all included. No GoDaddy bills, no Squarespace bill, no separate hosting plan.",
   },
   {
+    icon: '⚙️',
     title: 'Custom software, built around you',
     desc: 'Every month we build the next thing your business actually needs — a quote tool, a customer portal, an internal dashboard, a booking system, automations between the apps you already use. Whatever you wish your current software did but doesn\'t.',
   },
   {
+    icon: '🤝',
     title: 'A real developer on your team',
     desc: 'Bi-weekly meetings to plan what\'s next, hear what\'s working, and walk you through what we shipped. Plus suggestions you can take or leave — the perks of having a developer who\'s thinking about your business between meetings.',
   },
   {
+    icon: '🔓',
     title: 'Your code, your domain, your data',
     desc: "If you ever leave, you walk out with everything. Code is yours. Domain is yours. Data exports cleanly. We'll even help you migrate. The only thing keeping you here is the work being good.",
   },
   {
-    title: 'No surprise bills',
-    desc: "Flat $2,995/month covers all of it: development, website, hosting, domain, meetings, support. No hourly billing, no overage charges, no separate invoices for each new feature.",
+    icon: '💵',
+    title: 'No surprise bills from us',
+    desc: "Flat $2,995/month covers all of our development, your website, hosting, domain, meetings, support. No hourly billing for our time, no overage charges, no separate invoices for each new feature.",
   },
 ];
 
@@ -62,15 +69,23 @@ const FAQ: Faq[] = [
   },
   {
     q: 'Why is the price what it is?',
-    a: "A fullstack developer in the US costs $150-180K/year in salary alone — $200K+ once you add benefits, taxes, and equipment. We're $36K/year for the same role, because you're sharing us across a small group of clients (capped — that's the whole point). It works for you because you don't need 40 hours of dev time a week. It works for us because AI tooling makes one developer more productive than ever before.",
+    a: "A fullstack developer in the US costs $150-180K/year in salary alone — $200K+ once you add benefits, taxes, and equipment. We're $36K/year for the same role, because you're sharing us across a small group of clients (capped — that's the whole point). It works for you because you don't need 40 hours of dev time a week. It works for us because we keep our roster small and run a tight delivery process.",
+  },
+  {
+    q: "What's NOT included?",
+    a: "Anything that costs real money to a third party. If your project needs a paid API (e.g. a payment processor's transaction fees, an SMS service, a mapping API, a data provider, an AI integration with usage charges), those costs are passed through to you at cost — no markup, but on your bill. We always tell you upfront before turning anything paid on, and you approve it. The flat $2,995 covers our time and the basics; it doesn't cover external services with their own meters.",
   },
   {
     q: 'Why do you cap at a small number of clients?',
-    a: "Because the model only works if every client actually gets attention. Big agencies sign 80 clients, give you a junior dev once a month, and hope you don't notice. We sign a small number, you get the actual builder on every meeting, and the work stays sharp. When we're full, we're full.",
+    a: "Because the model only works if every client actually gets attention. Big agencies sign 80 clients, give you a junior account manager once a month, and hope you don't notice. We sign a small number, you get the actual builder on every meeting, and the work stays sharp. When we're full, we're full.",
   },
   {
     q: "What kind of things do you build?",
     a: "Custom internal tools (CRMs, dashboards, scheduling, ordering, quoting). Customer-facing portals. Integrations between the apps you already use (your QuickBooks, your Stripe, your Shopify, your spreadsheet). Automations that replace manual data entry. Marketing sites and landing pages. Anything that runs in a browser or on a phone, basically.",
+  },
+  {
+    q: 'Can you build me a real iPhone or Android app?',
+    a: "Yes — for an extra $300/month. We share most of the code between your website and the mobile apps so it's add-on pricing, not double pricing. You get listings on both the App Store and Google Play, with us handling submission, review responses, and the ongoing OS updates that break things every year. The $99/year Apple developer fee and $25 one-time Google fee are passed through.",
   },
   {
     q: 'How fast can you ship something?',
@@ -90,19 +105,25 @@ export default function LandingPage() {
   return (
     <div className="landing">
       <header className="landing-nav">
-        <div className="landing-brand">GetXsite</div>
+        <div className="landing-brand">
+          <span className="landing-brand-mark">G</span>
+          <span className="landing-brand-text">GetXsite</span>
+        </div>
         <nav className="landing-nav-links">
           <a href="#whats-included">What you get</a>
+          <a href="#why">Why us</a>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
-          <a href={BOOK_CALL_URL} className="landing-nav-cta">
-            Book a call
-          </a>
         </nav>
+        <a href={BOOK_CALL_URL} className="landing-nav-cta">
+          Book a call
+        </a>
       </header>
 
       <section className="landing-hero">
-        <div className="landing-eyebrow">Your own developer for your business</div>
+        <div className="landing-eyebrow">
+          Your own developer for your business
+        </div>
         <h1>
           Custom software, built and improved every month —
           <span className="landing-accent"> for $2,995.</span>
@@ -122,13 +143,14 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="landing-hero-fineprint">
-          Free website, free domain, free hosting included · No long-term
-          contract · Your code is yours
+          Free website · Free domain · Free hosting · No annual contract ·
+          Your code is yours
         </div>
       </section>
 
       <section className="landing-counter-section">
         <div className="landing-counter">
+          <div className="landing-counter-pulse" />
           <div className="landing-counter-num">
             <span className="landing-counter-current">{CLIENTS_DISPLAYED}</span>
             <span className="landing-counter-divider">/</span>
@@ -150,11 +172,16 @@ export default function LandingPage() {
       <section className="landing-section" id="whats-included">
         <h2>What you get for $2,995/month</h2>
         <p className="landing-section-sub">
-          Everything below, every month. One flat price, no surprise invoices.
+          Everything below, every month. One flat price for our time and the
+          basics. (Third-party services with their own usage fees are passed
+          through at cost — see <a href="#faq">FAQ</a>.)
         </p>
         <div className="landing-grid">
           {INCLUDED.map((f) => (
             <div key={f.title} className="landing-card">
+              <div className="landing-card-icon" aria-hidden="true">
+                {f.icon}
+              </div>
               <div className="landing-card-title">{f.title}</div>
               <div className="landing-card-desc">{f.desc}</div>
             </div>
@@ -170,7 +197,7 @@ export default function LandingPage() {
           a real developer earns the price.
         </p>
         <div className="landing-why-grid">
-          <div className="landing-why-card">
+          <div className="landing-why-card landing-why-card-1">
             <div className="landing-why-num">1</div>
             <div className="landing-why-title">
               You stop paying for software that almost fits.
@@ -183,7 +210,7 @@ export default function LandingPage() {
               the ones that do.
             </div>
           </div>
-          <div className="landing-why-card">
+          <div className="landing-why-card landing-why-card-2">
             <div className="landing-why-num">2</div>
             <div className="landing-why-title">
               The math vs. hiring is obvious.
@@ -191,12 +218,12 @@ export default function LandingPage() {
             <div className="landing-why-desc">
               A US fullstack developer: ~$180,000/year salary,
               ~$215,000/year fully loaded. Us: $35,940/year. Same role, no
-              recruiting, no payroll, no benefits, no risk. We use AI tooling
-              to ship at multiples of normal speed, which is why this works
-              for both sides.
+              recruiting, no payroll, no benefits, no risk — and we're sharing
+              ourselves across a small group of clients, which is why this
+              works for both sides.
             </div>
           </div>
-          <div className="landing-why-card">
+          <div className="landing-why-card landing-why-card-3">
             <div className="landing-why-num">3</div>
             <div className="landing-why-title">
               Your software grows with the business.
@@ -209,7 +236,7 @@ export default function LandingPage() {
               license.
             </div>
           </div>
-          <div className="landing-why-card">
+          <div className="landing-why-card landing-why-card-4">
             <div className="landing-why-num">4</div>
             <div className="landing-why-title">
               You walk out with everything if you leave.
@@ -226,9 +253,10 @@ export default function LandingPage() {
       <section className="landing-section" id="pricing">
         <h2>Pricing</h2>
         <p className="landing-section-sub">
-          One flat rate. Everything included. Cancel any month.
+          One flat rate for our time. Add a mobile app if you want one. Cancel
+          any month.
         </p>
-        <div className="landing-pricing">
+        <div className="landing-pricing landing-pricing-pair">
           <div className="landing-price-card landing-price-card-pro">
             <div className="landing-price-name">Your developer</div>
             <div className="landing-price-amount">
@@ -255,6 +283,50 @@ export default function LandingPage() {
               {SPOTS_LEFT > 0
                 ? `${SPOTS_LEFT} spot${SPOTS_LEFT === 1 ? '' : 's'} currently open. We'll know in the first call whether we're a fit.`
                 : "Currently full — book a call to join the waitlist."}
+            </div>
+          </div>
+
+          <div className="landing-price-card landing-price-card-addon">
+            <div className="landing-price-tag">Add-on</div>
+            <div className="landing-price-name">Mobile app</div>
+            <div className="landing-price-amount">
+              <span className="landing-price-plus">+</span>
+              <span className="landing-price-num">$300</span>
+              <span className="landing-price-per">/month</span>
+            </div>
+            <div className="landing-price-vs">on top of your subscription</div>
+            <ul className="landing-price-list">
+              <li>iOS app on the Apple App Store</li>
+              <li>Android app on Google Play</li>
+              <li>Same codebase as your website — one team, one product</li>
+              <li>We handle submission, review responses, OS updates</li>
+              <li>Push notifications, deep links, offline mode if needed</li>
+              <li>Add or remove anytime</li>
+            </ul>
+            <a href={BOOK_CALL_URL} className="landing-cta block">
+              Add it during onboarding
+            </a>
+            <div className="landing-price-fine">
+              Apple developer fee ($99/year) and Google one-time fee ($25)
+              passed through at cost.
+            </div>
+          </div>
+        </div>
+
+        <div className="landing-passthrough">
+          <div className="landing-passthrough-icon">💡</div>
+          <div>
+            <div className="landing-passthrough-title">
+              About third-party costs
+            </div>
+            <div className="landing-passthrough-body">
+              Your $2,995/month covers <strong>our</strong> work — design,
+              development, hosting, domain, meetings, support. If your project
+              uses paid third-party services (AI APIs, SMS providers, mapping
+              services, payment processor fees, premium data feeds, etc.),
+              those costs go on your account at cost — no markup. We always
+              show you the cost and get your sign-off before turning anything
+              paid on.
             </div>
           </div>
         </div>
