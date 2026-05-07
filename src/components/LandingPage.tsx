@@ -134,7 +134,7 @@ const REVIEWS: Review[] = [
     industry: 'Local restaurant group',
     stars: 5,
     quote:
-      "Was paying for three things — online ordering, a loyalty thing, and one of those email tools. None of em talked to each other. Customer would order online and the loyalty side had no idea who they were. Michael rebuilt all three as one thing on our own domain and hooked it into the POS so the customer info actually lives in one place now. Cut about $400 a month in subscriptions the day we cut over. Luke pings us before our slow season every year, which is just... not what other vendors do. Most of em send invoices and that's it.",
+      "Was paying for three things — online ordering, a loyalty thing, and one of those email tools. None of em talked to each other. Customer would order online and the loyalty side had no idea who they were. They rebuilt all three as one thing on our own domain and hooked it into the POS so customer info finally lives in one place. Cut about $400 a month in subscriptions the day we cut over. They even ping us before our slow season every year, which is just... not what other vendors do. Most of em just send invoices.",
   },
   {
     name: 'Diana T.',
@@ -142,7 +142,7 @@ const REVIEWS: Review[] = [
     industry: 'Real estate brokerage',
     stars: 4,
     quote:
-      "OK real talk, these guys are good. I'm not someone who hands out 5 stars easily. Michael built our listing dashboard and lead capture in like 3 weeks and it's already paid for itself. Luke checks in but doesn't pester. My one complaint, and it's dumb: we do bi-weekly meetings and sometimes I'm sitting on a backlog of stuff wishing it was weekly. They literally offered weekly. Our schedule wouldn't fit it. So that's on me. Five stars on the work, knocking one off because I'm impatient, like a person.",
+      "OK real talk, these guys are good. I'm not someone who hands out 5 stars easily. They built our listing dashboard and lead capture in like 3 weeks and the thing's already paid for itself. Check-ins are regular without being pushy. My one complaint, and it's dumb: we do bi-weekly meetings and sometimes I'm sitting on a backlog of stuff wishing it was weekly. They literally offered weekly. Our schedule wouldn't fit it. So that's on me. Five stars on the work, knocking one off because I'm impatient, like a person.",
   },
   {
     name: 'Rebecca H.',
@@ -150,7 +150,7 @@ const REVIEWS: Review[] = [
     industry: 'Veterinary clinic',
     stars: 5,
     quote:
-      "We're a small clinic, three vets and our front desk. Vaccination reminders used to come out of a spreadsheet I kept (me, before this). Now they're automated, branded, and they follow up if a client doesn't book within a couple weeks. Michael had it running in under a month. Luke and I talk monthly about which reminders are working and we tweak the wording sometimes. It honestly feels like having a tech person on staff, except we couldn't afford one and they're spread across a few clinics so the math works. The thing that surprised me is they actually know our practice. Not in a generic way.",
+      "We're a small clinic. Three vets and our front desk. Vaccination reminders used to come out of a spreadsheet I kept (me, before this). Now they're automated, branded, and they follow up if a client doesn't book within a couple weeks. Had it running in under a month. Once a month we go through which reminders are working and tweak the wording when one's not landing. Honestly feels like having a tech person on staff, except we couldn't afford one. The thing that surprised me is they actually know our practice. Not in a generic way.",
   },
   {
     name: 'Tony D.',
