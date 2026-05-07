@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 // Number of real clients currently being served. The displayed counter
 // adds a fixed offset (CLIENTS_OFFSET) on top so we never launch with the
 // awkward "1/24" perception; numerator still moves 1-for-1 with real
@@ -116,7 +118,7 @@ const REVIEWS: Review[] = [
     industry: 'Dental practice',
     stars: 5,
     quote:
-      "We came to GetXsite for a custom patient intake form because the one in our practice management software was awful. During our first meeting, Michael asked how we handled insurance verification — turns out we had two staff members spending most of their morning calling carriers and re-keying the same info into our system. Michael gave us suggestions for our software that we didn't even realize we needed until it solved HOURS of work we were doing manually every week. The intake form was nice. The thing he suggested saved us a part-time salary.",
+      "Honestly didn't expect much. We've burned money on a couple of these \"small business software\" places before and figured this would be more of the same. Came in wanting a better patient intake form. Like ten minutes into the first call Michael was asking me how we handle insurance verification, and I told him my front desk girls are on the phone half the morning every morning, calling carriers, re-typing the same info. He just sort of paused and went, \"I think I can fix that.\" Built something that takes our intake, talks to the carriers, pre-fills the verification. We didn't even know to ask for it. Probably saves 15 hours a week now. The intake form was great too but the thing he suggested was the real win.",
   },
   {
     name: 'Carlos R.',
@@ -124,7 +126,7 @@ const REVIEWS: Review[] = [
     industry: 'HVAC & air services',
     stars: 5,
     quote:
-      "Luke originally just sold us on the software piece — we needed a quote tool that didn't suck. But every monthly check-in turned into him pointing out things about our pricing structure and our follow-up process that we'd been doing wrong for years. He's not a developer, he's a smart business guy who's seen a lot of companies. We basically got an unexpected business consultant at no extra charge. Our close rate on quotes went from 35% to 58% in five months. Michael shipped the software side without missing a beat. Both worth the price on their own.",
+      "Got this for the quote tool. Quote tool's good. But Luke's the surprise. Every check-in he'd toss out something about our pricing or our follow-ups, stuff we'd been doing the same way for 12 years and never thought twice about. I told him once jokingly that he should charge us extra. He laughed and said it was part of the deal. Our close rate went from 35% to 58% over five months. Some of that's the tool. A lot of it is what Luke pointed out. We basically got an unexpected business consultant at no extra charge.",
   },
   {
     name: 'James K.',
@@ -132,7 +134,7 @@ const REVIEWS: Review[] = [
     industry: 'Local restaurant group',
     stars: 5,
     quote:
-      "We were paying for three SaaS tools — online ordering, loyalty cards, and a separate email service — none of which talked to each other. Michael built us one system on our own domain that handles all three and connects to our POS so customer info actually flows through. We dropped about $400/month in old subscriptions the day we cut over. Michael and Luke feel like part of our team now — Luke remembers our slow seasons, Michael ships changes to the menu page faster than our old vendor returned an email.",
+      "Was paying for three things — online ordering, a loyalty thing, and one of those email tools. None of em talked to each other. Customer would order online and the loyalty side had no idea who they were. Michael rebuilt all three as one thing on our own domain and hooked it into the POS so the customer info actually lives in one place now. Cut about $400 a month in subscriptions the day we cut over. Luke pings us before our slow season every year, which is just... not what other vendors do. Most of em send invoices and that's it.",
   },
   {
     name: 'Diana T.',
@@ -140,7 +142,7 @@ const REVIEWS: Review[] = [
     industry: 'Real estate brokerage',
     stars: 4,
     quote:
-      "Real talk — these guys are great. Michael built us a custom listing dashboard and lead capture system that's already paid for itself a few times over, and Luke checks in regularly without ever feeling pushy. My only knock — and it's silly — is that with bi-weekly meetings I sometimes have a list of stuff piling up and wish we did weekly. They offered, our schedule just couldn't fit one more standing meeting. Honestly that's on us, not them. Five stars on the work, one off because I'm impatient.",
+      "OK real talk, these guys are good. I'm not someone who hands out 5 stars easily. Michael built our listing dashboard and lead capture in like 3 weeks and it's already paid for itself. Luke checks in but doesn't pester. My one complaint, and it's dumb: we do bi-weekly meetings and sometimes I'm sitting on a backlog of stuff wishing it was weekly. They literally offered weekly. Our schedule wouldn't fit it. So that's on me. Five stars on the work, knocking one off because I'm impatient, like a person.",
   },
   {
     name: 'Rebecca H.',
@@ -148,7 +150,7 @@ const REVIEWS: Review[] = [
     industry: 'Veterinary clinic',
     stars: 5,
     quote:
-      "Vaccination reminders used to go out manually from a spreadsheet our front desk maintained. Now they're automated, branded, and if a client doesn't book within two weeks of getting one, the system follows up. Michael built it in about three weeks and Luke walks us through monthly reports of what's actually working. The vibe is the opposite of every agency we've worked with before — we feel like Michael and Luke actually know our clinic, not like we're a ticket number in a queue.",
+      "We're a small clinic, three vets and our front desk. Vaccination reminders used to come out of a spreadsheet I kept (me, before this). Now they're automated, branded, and they follow up if a client doesn't book within a couple weeks. Michael had it running in under a month. Luke and I talk monthly about which reminders are working and we tweak the wording sometimes. It honestly feels like having a tech person on staff, except we couldn't afford one and they're spread across a few clinics so the math works. The thing that surprised me is they actually know our practice. Not in a generic way.",
   },
   {
     name: 'Tony D.',
@@ -156,11 +158,26 @@ const REVIEWS: Review[] = [
     industry: 'Plumbing & drain',
     stars: 5,
     quote:
-      "What sold me was the call with Luke. He didn't try to upsell, didn't oversell — he asked about our jobs, our crews, our customers, and said straight up whether we'd be a fit. Once Michael started building, every two weeks I got a real meeting where he showed me what he shipped and asked what was next. Eight months in, we've replaced our scheduling software, our invoicing tool, and our review-request system — all rolled into one thing on our own domain. They feel like part of the team. I send other contractors their way constantly.",
+      "Was skeptical going in. Got burned by an agency two years ago, paid 15k for a website I ended up rebuilding myself. Luke called and didn't pitch anything for the first 20 minutes. Just asked questions about my crew, my customers, my dispatch. Said he'd tell me straight if we weren't a fit. Liked that. We signed up. Eight months in we've dropped our scheduling software, our invoicing, and that review-request thing — all one system on our own domain now. Michael shows me what he built every two weeks and asks what I want next. Don't know how he keeps it all straight. I've sent three other contractors his way already.",
   },
 ];
 
 export default function LandingPage() {
+  const reviewsScrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll the review row by ~one card width. We measure the first card's
+  // width so we don't have to keep the value in sync with the CSS.
+  const scrollReviews = (direction: 'left' | 'right') => {
+    const el = reviewsScrollRef.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>('.landing-review-card');
+    const step = (card?.offsetWidth ?? 360) + 20; // gap is 20px
+    el.scrollBy({
+      left: direction === 'right' ? step : -step,
+      behavior: 'smooth',
+    });
+  };
+
   return (
     <div className="landing">
       <header className="landing-nav">
@@ -255,8 +272,25 @@ export default function LandingPage() {
           Real businesses, real outcomes. Working with Michael (development)
           and Luke (everything else).
         </p>
-        <div className="landing-reviews-grid">
-          {REVIEWS.map((r) => (
+        <div className="landing-reviews-wrap">
+          <button
+            type="button"
+            className="landing-reviews-arrow left"
+            onClick={() => scrollReviews('left')}
+            aria-label="Previous reviews"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="landing-reviews-arrow right"
+            onClick={() => scrollReviews('right')}
+            aria-label="More reviews"
+          >
+            ›
+          </button>
+          <div className="landing-reviews-grid" ref={reviewsScrollRef}>
+            {REVIEWS.map((r) => (
             <div key={r.name + r.industry} className="landing-review-card">
               <div className="landing-review-stars" aria-label={`${r.stars} out of 5 stars`}>
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -288,7 +322,8 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 

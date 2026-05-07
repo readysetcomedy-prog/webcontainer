@@ -1049,13 +1049,88 @@ button.primary:hover:not(:disabled) {
   position: relative;
 }
 
+.landing-reviews-wrap {
+  position: relative;
+}
+
 .landing-reviews-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  display: flex;
   gap: 20px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scroll-padding: 0;
+  /* Negative margins push the row to bleed past the section padding so
+     the next-card peek looks intentional rather than clipped. */
+  margin: 0 -32px;
+  padding: 8px 32px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(167, 139, 250, 0.4) transparent;
+}
+
+@media (max-width: 720px) {
+  .landing-reviews-grid {
+    margin: 0 -18px;
+    padding: 8px 18px 24px;
+  }
+}
+
+.landing-reviews-grid::-webkit-scrollbar {
+  height: 6px;
+}
+.landing-reviews-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+.landing-reviews-grid::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.35);
+  border-radius: 3px;
+}
+
+.landing-reviews-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(13, 17, 28, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--fg);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  transition: transform 150ms, border-color 150ms, background 150ms;
+}
+
+.landing-reviews-arrow:hover {
+  transform: translateY(-50%) scale(1.06);
+  border-color: rgba(167, 139, 250, 0.5);
+  background: rgba(20, 25, 38, 0.95);
+}
+
+.landing-reviews-arrow.left {
+  left: -8px;
+}
+
+.landing-reviews-arrow.right {
+  right: -8px;
+}
+
+@media (max-width: 720px) {
+  /* Touch users have native swipe; the buttons just take up room. */
+  .landing-reviews-arrow { display: none; }
 }
 
 .landing-review-card {
+  flex: 0 0 380px;
+  scroll-snap-align: start;
   background: linear-gradient(180deg, rgba(167, 139, 250, 0.06), rgba(96, 165, 250, 0.03));
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
@@ -1064,6 +1139,12 @@ button.primary:hover:not(:disabled) {
   flex-direction: column;
   gap: 16px;
   transition: transform 200ms, border-color 200ms, box-shadow 200ms;
+}
+
+@media (max-width: 720px) {
+  .landing-review-card {
+    flex: 0 0 86%;
+  }
 }
 
 .landing-review-card:hover {
