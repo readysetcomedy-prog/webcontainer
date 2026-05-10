@@ -1,17 +1,5 @@
 import { useRef } from 'react';
 
-// Number of real clients currently being served. The displayed counter
-// adds a fixed offset (CLIENTS_OFFSET) on top so we never launch with the
-// awkward "1/24" perception; numerator still moves 1-for-1 with real
-// signups, so existing customers see the count rise alongside them. Edit
-// this constant when you sign or lose a client. Cap is the public spots
-// number — keep it where it doesn't overflow as you grow.
-const CLIENTS_REAL = 0;
-const CLIENTS_OFFSET = 9;
-const CLIENTS_CAP = 24;
-const CLIENTS_DISPLAYED = Math.min(CLIENTS_REAL + CLIENTS_OFFSET, CLIENTS_CAP);
-const SPOTS_LEFT = Math.max(CLIENTS_CAP - CLIENTS_DISPLAYED, 0);
-
 const BOOK_CALL_URL =
   // Swap this for a Calendly / SavvyCal / Cal.com link when you have one.
   'mailto:hello@getxsite.com?subject=Custom%20software%20for%20my%20business';
@@ -31,17 +19,17 @@ const INCLUDED: Included[] = [
   {
     icon: '🔗',
     title: 'Free domain & hosting',
-    desc: "If you don't have a domain we buy one. If you do, we move it for you. Hosting, SSL, uptime — all handled, all included. No GoDaddy bills, no Squarespace bill, no separate hosting plan.",
+    desc: "If you don't have a domain, we buy one. If you do, we move it for you. Hosting, SSL, and uptime are all handled and all included. No GoDaddy bills, no Squarespace subscription, no separate hosting plan.",
   },
   {
     icon: '⚙️',
     title: 'Custom software, built around you',
-    desc: 'Every month we build the next thing your business actually needs — a quote tool, a customer portal, an internal dashboard, a booking system, automations between the apps you already use. Whatever you wish your current software did but doesn\'t.',
+    desc: "Every month we build the next thing your business actually needs: a quote tool, a customer portal, an internal dashboard, a booking system, automations between the apps you already use. Whatever you wish your current software did but doesn't.",
   },
   {
     icon: '🤝',
     title: 'A real developer on your team',
-    desc: 'Bi-weekly meetings to plan what\'s next, hear what\'s working, and walk you through what we shipped. Plus suggestions you can take or leave — the perks of having a developer who\'s thinking about your business between meetings.',
+    desc: "Bi-weekly meetings to plan what's next, hear what's working, and walk you through what we shipped. Plus suggestions you can take or leave: the perks of having a developer who's thinking about your business between meetings.",
   },
   {
     icon: '🔓',
@@ -51,7 +39,7 @@ const INCLUDED: Included[] = [
   {
     icon: '💵',
     title: 'No surprise bills from us',
-    desc: "Flat $2,995/month covers all of our development, your website, hosting, domain, meetings, support. No hourly billing for our time, no overage charges, no separate invoices for each new feature.",
+    desc: "A flat monthly covers all of our development, your website, hosting, domain, meetings, and support. No hourly billing for our time, no overage charges, no separate invoices for each new feature.",
   },
 ];
 
@@ -63,43 +51,47 @@ interface Faq {
 const FAQ: Faq[] = [
   {
     q: 'How is this different from buying another piece of software?',
-    a: "Software is built for the average customer in your industry. You're not the average customer. Off-the-shelf tools get you 70% of the way to what you want and then stop. A developer keeps going — building exactly the thing your business needs, and changing it as your business changes. If you want something that does what YOU want, you don't need another subscription. You need a developer.",
+    a: "Software is built for the average customer in your industry. You are not the average customer. Off-the-shelf tools get you about 70 percent of the way to what you want and then stop. A developer keeps going, building exactly the thing your business needs, and changing it as your business changes. If you want something that does what you want, you don't need another subscription. You need a developer.",
   },
   {
     q: 'How is this different from hiring a freelancer per project?',
-    a: "Freelancers quote a project, deliver it, and disappear. Six months later when you need a change, you start over with someone new who has to learn your business from scratch. We're embedded — we know your workflow, your customers, your weird edge cases — so the second month, third month, twelfth month of work is faster and better than the first.",
+    a: "Freelancers quote a project, deliver it, and move on. Six months later when you need a change, you start over with someone new who has to learn your business from scratch. We are embedded. We know your workflow, your customers, and your edge cases, so the second month, third month, and twelfth month of work is faster and better than the first.",
   },
   {
     q: 'Why is the price what it is?',
-    a: "A fullstack developer in the US costs $150-180K/year in salary alone — $200K+ once you add benefits, taxes, and equipment. We're $36K/year for the same role, because you're sharing us across a small group of clients (capped — that's the whole point). It works for you because you don't need 40 hours of dev time a week. It works for us because we keep our roster small and run a tight delivery process.",
+    a: "A US fullstack developer costs $150,000 to $180,000 a year in salary alone, and $200,000 or more once you add benefits, taxes, and equipment. The base service here is roughly $12,000 a year, because we share ourselves across a small group of clients on purpose. It works for you because you don't need 40 hours of dev time a week. It works for us because we keep the roster small and run a tight delivery process.",
+  },
+  {
+    q: 'Why do you keep the client list small?',
+    a: "Because the model only works if every client actually gets attention. Larger agencies sign as many clients as they can, hand you a junior account manager, and hope you don't notice. We keep the list small so you get the actual builder on every meeting and the work stays sharp. It also means we can keep the customers we already have happy, which matters more to us than growing fast.",
   },
   {
     q: "What's NOT included?",
-    a: "Anything that costs real money to a third party. If your project needs a paid API (e.g. a payment processor's transaction fees, an SMS service, a mapping API, a data provider, an AI integration with usage charges), those costs are passed through to you at cost — no markup, but on your bill. We always tell you upfront before turning anything paid on, and you approve it. The flat $2,995 covers our time and the basics; it doesn't cover external services with their own meters.",
-  },
-  {
-    q: 'Why do you cap at a small number of clients?',
-    a: "Because the model only works if every client actually gets attention. Big agencies sign 80 clients, give you a junior account manager once a month, and hope you don't notice. We sign a small number, you get the actual builder on every meeting, and the work stays sharp. When we're full, we're full.",
+    a: "Anything that costs real money to a third party. If your project needs a paid API (a payment processor's transaction fees, an SMS service, a mapping API, a data provider, an AI integration with usage charges, etc.), those costs are passed through to you at cost, with no markup, on your account. We always tell you upfront before turning anything paid on, and you approve it. Our subscription covers our time and the basics. It doesn't cover external services with their own meters.",
   },
   {
     q: "What kind of things do you build?",
-    a: "Custom internal tools (CRMs, dashboards, scheduling, ordering, quoting). Customer-facing portals. Integrations between the apps you already use (your QuickBooks, your Stripe, your Shopify, your spreadsheet). Automations that replace manual data entry. Marketing sites and landing pages. Anything that runs in a browser or on a phone, basically.",
+    a: "Custom internal tools (CRMs, dashboards, scheduling, ordering, quoting, dispatch, payroll). Customer-facing portals. Integrations between the apps you already use (QuickBooks, Stripe, Shopify, the spreadsheet your team has been living in for years). Automations that replace manual data entry. Marketing sites and landing pages. Industry-specific things like patient care reports, route optimization, inventory tied to job sheets. Basically anything that runs in a browser or on a phone.",
   },
   {
     q: 'Can you build me a real iPhone or Android app?',
-    a: "Yes — for an extra $300/month. We share most of the code between your website and the mobile apps so it's add-on pricing, not double pricing. You get listings on both the App Store and Google Play, with us handling submission, review responses, and the ongoing OS updates that break things every year. The $99/year Apple developer fee and $25 one-time Google fee are passed through.",
+    a: "Yes. The mobile app is an add-on to the base service: a one-time additional $1,000 on setup ($2,995 total) and an extra $299 a month on top of the $999 base ($1,298 a month total). We share most of the code between your website and the apps, so it's add-on pricing, not double pricing. You get listings on both the App Store and Google Play. We handle submission, review responses, and the ongoing OS updates that break things every year. Apple's $99 a year and Google's $25 one-time developer fees are passed through.",
+  },
+  {
+    q: "Can I get just the mobile app without a website?",
+    a: "The mobile app is an add-on to the base service, not a standalone product. Even if you don't want a website, you're on the $1,298 monthly because the base service is what we build and maintain the app from. The base service still includes everything else (hosting, domain, ongoing development, meetings) just without a public website if you don't need one.",
   },
   {
     q: 'How fast can you ship something?',
-    a: "Most small features in days. A first version of a custom internal tool in 1-2 weeks. A real production-ready website in the first week. We work in 2-week cycles with a written plan, so you always know what's coming next.",
+    a: "Most small features in days. A first version of a custom internal tool in one to two weeks. A real production-ready website in the first week. We work in two-week cycles with a written plan, so you always know what's coming next.",
   },
   {
     q: 'What if my needs change or I want to slow down?',
-    a: "You can change priorities every meeting — that's the point. If your business genuinely doesn't need active development for a stretch, we can pause: we keep maintaining your site and hosting, drop the dev meetings, and resume when you have something new to build. We bill monthly, no annual lock-in.",
+    a: "You can change priorities every meeting. That is the point. If your business genuinely doesn't need active development for a stretch, we can pause: we keep maintaining your site and hosting, drop the dev meetings, and resume when you have something new to build. We bill monthly, with no annual lock-in.",
   },
   {
     q: 'Who actually does the work?',
-    a: "We do — directly. There's no offshore handoff, no junior on your account, no ticket queue. You meet the person building your software every two weeks. By design we keep the client list small enough that this stays true.",
+    a: "We do, directly. There is no offshore handoff, no junior on your account, no ticket queue. You meet the person building your software every two weeks. By design we keep the client list small enough that this stays true.",
   },
 ];
 
@@ -118,7 +110,7 @@ const REVIEWS: Review[] = [
     industry: 'Dental practice',
     stars: 5,
     quote:
-      "Honestly didn't expect much. We've burned money on a couple of these \"small business software\" places before and figured this would be more of the same. Came in wanting a better patient intake form. Like ten minutes into the first call Michael was asking me how we handle insurance verification, and I told him my front desk girls are on the phone half the morning every morning, calling carriers, re-typing the same info. He just sort of paused and went, \"I think I can fix that.\" Built something that takes our intake, talks to the carriers, pre-fills the verification. We didn't even know to ask for it. Probably saves 15 hours a week now. The intake form was great too but the thing he suggested was the real win.",
+      "We came in wanting a better patient intake form. The one in our practice management software is awful and we'd been hearing about it from patients for years. About ten minutes into our first meeting, Michael asked how we handled insurance verification. I told him my front desk was on the phone half of every morning calling carriers and re-typing the same information into our system. He paused, then said he thought he could fix it. He built a tool that takes the data from intake, talks to the carriers, and pre-fills our verification screens. We didn't even know to ask for it. It saves us roughly fifteen hours a week. The intake form is great, but that other piece was the real surprise.",
   },
   {
     name: 'Carlos R.',
@@ -126,7 +118,15 @@ const REVIEWS: Review[] = [
     industry: 'HVAC & air services',
     stars: 5,
     quote:
-      "Got this for the quote tool. Quote tool's good. But Luke's the surprise. Every check-in he'd toss out something about our pricing or our follow-ups, stuff we'd been doing the same way for 12 years and never thought twice about. I told him once jokingly that he should charge us extra. He laughed and said it was part of the deal. Our close rate went from 35% to 58% over five months. Some of that's the tool. A lot of it is what Luke pointed out. We basically got an unexpected business consultant at no extra charge.",
+      "We hired them for a quote tool. The quote tool is solid. The bigger surprise was Luke. Every monthly check-in, he would point out something about our pricing structure or our follow-up process that we had been doing the same way for twelve years. I joked once that he should be charging us extra for the advice. He laughed and said it was part of the deal. Our close rate on quotes went from 35 percent to 58 percent over five months. Some of that is the new tool. A lot of it is what Luke pointed out. We basically got an unexpected business consultant at no extra charge.",
+  },
+  {
+    name: 'Marcus W.',
+    position: 'Owner',
+    industry: 'Private medical transport',
+    stars: 5,
+    quote:
+      "I called them for a website. That was the entire reason I reached out. Eighteen months later we run our dispatch, billing, payroll, scheduling, inventory, and our patient care reports out of one system they built around how we actually work. The PCR module replaced two pieces of software we were paying for and a process the crews hated. We are saving somewhere north of three thousand dollars a month on cancelled subscriptions, and probably twice that in time my back office used to spend reconciling between systems. None of this was on my list when I signed up. Every couple of months they would say, you know what would be easier, and they were right every time. We came for a website. We stayed because they kept building the rest of our business.",
   },
   {
     name: 'James K.',
@@ -134,7 +134,7 @@ const REVIEWS: Review[] = [
     industry: 'Local restaurant group',
     stars: 5,
     quote:
-      "Was paying for three things — online ordering, a loyalty thing, and one of those email tools. None of em talked to each other. Customer would order online and the loyalty side had no idea who they were. They rebuilt all three as one thing on our own domain and hooked it into the POS so customer info finally lives in one place. Cut about $400 a month in subscriptions the day we cut over. They even ping us before our slow season every year, which is just... not what other vendors do. Most of em just send invoices.",
+      "We were paying for three separate tools. Online ordering, a loyalty program, and an email service. None of them talked to each other, so when a customer ordered online, the loyalty side had no record of them. They rebuilt all three as one system on our domain and connected it to our POS. Customer information now lives in one place. We dropped about four hundred dollars a month in subscriptions the day we switched over. They also reach out before our slow season every year. That kind of attention is unusual. Most vendors just send invoices and stay quiet otherwise.",
   },
   {
     name: 'Diana T.',
@@ -142,7 +142,7 @@ const REVIEWS: Review[] = [
     industry: 'Real estate brokerage',
     stars: 4,
     quote:
-      "OK real talk, these guys are good. I'm not someone who hands out 5 stars easily. They built our listing dashboard and lead capture in like 3 weeks and the thing's already paid for itself. Check-ins are regular without being pushy. My one complaint, and it's dumb: we do bi-weekly meetings and sometimes I'm sitting on a backlog of stuff wishing it was weekly. They literally offered weekly. Our schedule wouldn't fit it. So that's on me. Five stars on the work, knocking one off because I'm impatient, like a person.",
+      "I do not hand out five-star reviews easily, but their work is excellent. The custom listing dashboard and lead capture system they built has already paid for itself. Their check-ins are consistent without being pushy. My one complaint, and it is genuinely petty, is that we meet bi-weekly and I sometimes have a backlog of items between meetings. They offered weekly. Our schedule could not accommodate it. That is on us, not them. Five stars on the work. One off because I am impatient.",
   },
   {
     name: 'Rebecca H.',
@@ -150,7 +150,7 @@ const REVIEWS: Review[] = [
     industry: 'Veterinary clinic',
     stars: 5,
     quote:
-      "We're a small clinic. Three vets and our front desk. Vaccination reminders used to come out of a spreadsheet I kept (me, before this). Now they're automated, branded, and they follow up if a client doesn't book within a couple weeks. Had it running in under a month. Once a month we go through which reminders are working and tweak the wording when one's not landing. Honestly feels like having a tech person on staff, except we couldn't afford one. The thing that surprised me is they actually know our practice. Not in a generic way.",
+      "We are a small clinic. Three veterinarians and a front desk. Vaccination reminders used to come from a spreadsheet I maintained on top of my regular work. They are now automated, branded to the clinic, and they follow up automatically if a client does not book within two weeks of getting one. The whole thing was running in under a month. Once a month we review which reminders are working and which need new wording. It feels like having a tech person on staff, which we never could have afforded otherwise. What surprised me was how well they understand our practice. Not in a generic way.",
   },
   {
     name: 'Tony D.',
@@ -158,7 +158,7 @@ const REVIEWS: Review[] = [
     industry: 'Plumbing & drain',
     stars: 5,
     quote:
-      "Was skeptical going in. Got burned by an agency two years ago, paid 15k for a website I ended up rebuilding myself. Luke called and didn't pitch anything for the first 20 minutes. Just asked questions about my crew, my customers, my dispatch. Said he'd tell me straight if we weren't a fit. Liked that. We signed up. Eight months in we've dropped our scheduling software, our invoicing, and that review-request thing — all one system on our own domain now. Michael shows me what he built every two weeks and asks what I want next. Don't know how he keeps it all straight. I've sent three other contractors his way already.",
+      "I was skeptical going in. We hired an agency two years ago and paid fifteen thousand dollars for a website I ended up rebuilding myself. Luke called and didn't pitch anything for the first twenty minutes. He asked about my crew, my customers, and my dispatch, and said he'd tell me straight if we weren't a fit. I respected that. Eight months in, we've replaced our scheduling software, our invoicing, and our review request system. It's all one product on our own domain now. Michael shows me what he built every two weeks and asks what's next. I don't know how he keeps everything straight. I've sent three other contractors his way already.",
   },
 ];
 
@@ -202,14 +202,14 @@ export default function LandingPage() {
           Your own developer for your business
         </div>
         <h1>
-          Custom software, built and improved every month —
-          <span className="landing-accent"> for $2,995.</span>
+          Custom software, built and improved every month,
+          <span className="landing-accent"> from $999.</span>
         </h1>
         <p className="landing-subhead">
-          You're already paying for SaaS subscriptions that don't quite fit
-          how your business actually works. Replace them with software built
-          around <em>you</em>, by your own developer — for less than a fifth
-          of what hiring full-time costs.
+          You&apos;re already paying for SaaS subscriptions that don&apos;t quite
+          fit how your business actually works. Replace them with software built
+          around <em>you</em>, by your own developer, for a fraction of what
+          hiring full-time costs.
         </p>
         <div className="landing-hero-ctas">
           <a href={BOOK_CALL_URL} className="landing-cta primary">
@@ -225,33 +225,12 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-counter-section">
-        <div className="landing-counter">
-          <div className="landing-counter-pulse" />
-          <div className="landing-counter-num">
-            <span className="landing-counter-current">{CLIENTS_DISPLAYED}</span>
-            <span className="landing-counter-divider">/</span>
-            <span className="landing-counter-total">{CLIENTS_CAP}</span>
-          </div>
-          <div className="landing-counter-label">
-            {SPOTS_LEFT > 0
-              ? `clients currently served · ${SPOTS_LEFT} spot${SPOTS_LEFT === 1 ? '' : 's'} open`
-              : 'clients currently served · waitlist only'}
-          </div>
-          <div className="landing-counter-sub">
-            We cap our roster on purpose. Every client gets the actual builder
-            on every meeting — no junior accounts, no offshore handoff, no
-            queue. When we're full, we're full.
-          </div>
-        </div>
-      </section>
-
       <section className="landing-section" id="whats-included">
-        <h2>What you get for $2,995/month</h2>
+        <h2>What you get</h2>
         <p className="landing-section-sub">
           Everything below, every month. One flat price for our time and the
           basics. (Third-party services with their own usage fees are passed
-          through at cost — see <a href="#faq">FAQ</a>.)
+          through at cost. See the <a href="#faq">FAQ</a>.)
         </p>
         <div className="landing-grid">
           {INCLUDED.map((f) => (
@@ -331,7 +310,7 @@ export default function LandingPage() {
         <h2>Why a developer instead of more software</h2>
         <p className="landing-section-sub">
           Off-the-shelf software gets you 70% of the way and stops. The other
-          30% is where the actual work of your business lives — and it's where
+          30% is where the actual work of your business lives, and it's where
           a real developer earns the price.
         </p>
         <div className="landing-why-grid">
@@ -342,8 +321,8 @@ export default function LandingPage() {
             </div>
             <div className="landing-why-desc">
               Most small businesses are paying $400-1,200/month across half a
-              dozen tools — Squarespace, QuickBooks add-ons, scheduling apps,
-              CRM, hosting, email tools — none of which quite do the thing you
+              dozen tools (Squarespace, QuickBooks add-ons, scheduling apps,
+              CRM, hosting, email tools), none of which quite do the thing you
               actually want. We replace the ones that don't fit and integrate
               the ones that do.
             </div>
@@ -354,11 +333,12 @@ export default function LandingPage() {
               The math vs. hiring is obvious.
             </div>
             <div className="landing-why-desc">
-              A US fullstack developer: ~$180,000/year salary,
-              ~$215,000/year fully loaded. Us: $35,940/year. Same role, no
-              recruiting, no payroll, no benefits, no risk — and we're sharing
-              ourselves across a small group of clients, which is why this
-              works for both sides.
+              A US fullstack developer: about $180,000 a year in salary,
+              roughly $215,000 fully loaded. Our base service is $11,988 a
+              year. Same role, no recruiting, no payroll, no benefits, no
+              risk. We can do that because we share ourselves across a small
+              group of clients on purpose, which is why this works for
+              both sides.
             </div>
           </div>
           <div className="landing-why-card landing-why-card-3">
@@ -391,52 +371,55 @@ export default function LandingPage() {
       <section className="landing-section" id="pricing">
         <h2>Pricing</h2>
         <p className="landing-section-sub">
-          One flat rate for our time. Add a mobile app if you want one. Cancel
-          any month.
+          A one-time setup, then a flat monthly. Add the mobile app if you
+          want one. Cancel any month.
         </p>
         <div className="landing-pricing landing-pricing-pair">
           <div className="landing-price-card landing-price-card-pro">
-            <div className="landing-price-name">Your developer</div>
+            <div className="landing-price-name">Software &amp; website</div>
             <div className="landing-price-amount">
-              <span className="landing-price-num">$2,995</span>
+              <span className="landing-price-num">$999</span>
               <span className="landing-price-per">/month</span>
             </div>
             <div className="landing-price-vs">
-              vs. $215K/year for a full-time hire
+              plus a one-time $1,995 setup. vs. $215K/year for a full-time hire.
             </div>
             <ul className="landing-price-list">
               <li>Custom software, built and improved monthly</li>
-              <li>Your website rebuilt or built fresh — included</li>
+              <li>Your website rebuilt or built fresh, included</li>
               <li>Free domain (or we move yours)</li>
-              <li>Hosting, SSL, uptime — handled</li>
-              <li>Bi-weekly planning + delivery meetings</li>
+              <li>Hosting, SSL, and uptime, handled</li>
+              <li>Bi-weekly planning and delivery meetings</li>
               <li>Direct access between meetings</li>
               <li>You own the code, the domain, the data</li>
-              <li>No annual contract — cancel any month</li>
+              <li>No annual contract, cancel any month</li>
             </ul>
             <a href={BOOK_CALL_URL} className="landing-cta primary block">
               Book a 20-minute call
             </a>
             <div className="landing-price-fine">
-              {SPOTS_LEFT > 0
-                ? `${SPOTS_LEFT} spot${SPOTS_LEFT === 1 ? '' : 's'} currently open. We'll know in the first call whether we're a fit.`
-                : "Currently full — book a call to join the waitlist."}
+              We work with a small number of clients on purpose, so each one
+              gets real attention. We&apos;ll know in the first call whether
+              we&apos;re a fit.
             </div>
           </div>
 
           <div className="landing-price-card landing-price-card-addon">
             <div className="landing-price-tag">Add-on</div>
-            <div className="landing-price-name">Mobile app</div>
+            <div className="landing-price-name">iOS &amp; Android app</div>
             <div className="landing-price-amount">
               <span className="landing-price-plus">+</span>
-              <span className="landing-price-num">$300</span>
+              <span className="landing-price-num">$299</span>
               <span className="landing-price-per">/month</span>
             </div>
-            <div className="landing-price-vs">on top of your subscription</div>
+            <div className="landing-price-vs">
+              plus a one-time $1,000 added to setup ($2,995 total). Total
+              monthly with base service: $1,298.
+            </div>
             <ul className="landing-price-list">
               <li>iOS app on the Apple App Store</li>
               <li>Android app on Google Play</li>
-              <li>Same codebase as your website — one team, one product</li>
+              <li>Shared codebase with your web product, one team</li>
               <li>We handle submission, review responses, OS updates</li>
               <li>Push notifications, deep links, offline mode if needed</li>
               <li>Add or remove anytime</li>
@@ -445,8 +428,11 @@ export default function LandingPage() {
               Add it during onboarding
             </a>
             <div className="landing-price-fine">
-              Apple developer fee ($99/year) and Google one-time fee ($25)
-              passed through at cost.
+              The mobile app is an add-on to the base service, not a
+              standalone product. Even if you only want the app, you&apos;re
+              on the $1,298 monthly because the base service is what we
+              build and maintain it from. Apple&apos;s $99/year and Google&apos;s
+              $25 one-time developer fees are passed through at cost.
             </div>
           </div>
         </div>
@@ -458,13 +444,13 @@ export default function LandingPage() {
               About third-party costs
             </div>
             <div className="landing-passthrough-body">
-              Your $2,995/month covers <strong>our</strong> work — design,
+              Your subscription covers <strong>our</strong> work: design,
               development, hosting, domain, meetings, support. If your project
               uses paid third-party services (AI APIs, SMS providers, mapping
               services, payment processor fees, premium data feeds, etc.),
-              those costs go on your account at cost — no markup. We always
-              show you the cost and get your sign-off before turning anything
-              paid on.
+              those costs go on your account at cost with no markup. We
+              always show you the cost and get your sign-off before turning
+              anything paid on.
             </div>
           </div>
         </div>
