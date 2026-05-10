@@ -142,7 +142,7 @@ const REVIEWS: Review[] = [
     industry: 'Real estate brokerage',
     stars: 4,
     quote:
-      "I do not hand out five-star reviews easily, but their work is excellent. The custom listing dashboard and lead capture system they built has already paid for itself. Their check-ins are consistent without being pushy. My one complaint, and it is genuinely petty, is that we meet bi-weekly and I sometimes have a backlog of items between meetings. They offered weekly. Our schedule could not accommodate it. That is on us, not them. Five stars on the work. One off because I am impatient.",
+      "I do not hand out five-star reviews easily, but their work is excellent. The custom listing dashboard and lead capture system they built has already paid for itself. Their check-ins are consistent without being pushy. My one complaint, and it is genuinely petty, is that we meet bi-weekly and I sometimes find myself with a list of stuff between meetings, wishing I could just hand it off sooner. Bi-weekly is the cadence across the board, which I get. Five stars on the work. One off because I am impatient.",
   },
   {
     name: 'Rebecca H.',
