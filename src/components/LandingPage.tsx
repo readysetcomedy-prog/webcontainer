@@ -59,7 +59,7 @@ const FAQ: Faq[] = [
   },
   {
     q: 'Why is the price what it is?',
-    a: "A US fullstack developer costs $150,000 to $180,000 a year in salary alone, and $200,000 or more once you add benefits, taxes, and equipment. The base service here is roughly $12,000 a year, because we share ourselves across a small group of clients on purpose. It works for you because you don't need 40 hours of dev time a week. It works for us because we keep the roster small and run a tight delivery process.",
+    a: "It is anchored to what you are already paying for software, not to what hiring a developer would cost. Most small businesses we work with come in paying $500 to $1,500 a month across a website builder, a CRM, a scheduling tool, an email service, an industry-specific app, and so on. Each one does part of what they want. None of them do all of it. Our $999 a month replaces the pieces that don't quite fit with software built around how you actually run, plus the developer who keeps improving it. The math works for you because you are not adding another bill, you are swapping one. The math works for us because we keep our roster small and run a tight delivery process.",
   },
   {
     q: 'Why do you keep the client list small?',
@@ -199,17 +199,18 @@ export default function LandingPage() {
 
       <section className="landing-hero">
         <div className="landing-eyebrow">
-          Your own developer for your business
+          Your own developer, for the price of software
         </div>
         <h1>
-          Custom software, built and improved every month,
-          <span className="landing-accent"> from $999.</span>
+          Stop paying for software that almost works.
+          <span className="landing-accent"> Get software built for you, from $999.</span>
         </h1>
         <p className="landing-subhead">
-          You&apos;re already paying for SaaS subscriptions that don&apos;t quite
-          fit how your business actually works. Replace them with software built
-          around <em>you</em>, by your own developer, for a fraction of what
-          hiring full-time costs.
+          You&apos;re probably paying $500 to $1,500 a month across a website
+          builder, a CRM, a scheduling tool, an email service, and a couple of
+          industry-specific apps. Each one does part of what you actually want.
+          For about the same monthly cost, get one system built around your
+          business, by a developer who keeps improving it.
         </p>
         <div className="landing-hero-ctas">
           <a href={BOOK_CALL_URL} className="landing-cta primary">
@@ -330,15 +331,16 @@ export default function LandingPage() {
           <div className="landing-why-card landing-why-card-2">
             <div className="landing-why-num">2</div>
             <div className="landing-why-title">
-              The math vs. hiring is obvious.
+              You&apos;re not adding a bill. You&apos;re swapping one.
             </div>
             <div className="landing-why-desc">
-              A US fullstack developer: about $180,000 a year in salary,
-              roughly $215,000 fully loaded. Our base service is $11,988 a
-              year. Same role, no recruiting, no payroll, no benefits, no
-              risk. We can do that because we share ourselves across a small
-              group of clients on purpose, which is why this works for
-              both sides.
+              Most small businesses we talk to are paying $500 to $1,500 a
+              month across half a dozen tools that each do part of the job
+              and none of them do all of it. Our base service is $999 a
+              month, includes the developer who builds and improves
+              something that does the whole job your way, and replaces the
+              tools you no longer need. You&apos;re not adding another line
+              item. You&apos;re trading bills for one that actually fits.
             </div>
           </div>
           <div className="landing-why-card landing-why-card-3">
@@ -382,7 +384,8 @@ export default function LandingPage() {
               <span className="landing-price-per">/month</span>
             </div>
             <div className="landing-price-vs">
-              plus a one-time $1,995 setup. vs. $215K/year for a full-time hire.
+              plus a one-time $1,995 setup. About what you already pay across
+              the software we replace.
             </div>
             <ul className="landing-price-list">
               <li>Custom software, built and improved monthly</li>
