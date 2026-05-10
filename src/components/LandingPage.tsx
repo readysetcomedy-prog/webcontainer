@@ -51,7 +51,7 @@ interface Faq {
 const FAQ: Faq[] = [
   {
     q: 'How is this different from buying another piece of software?',
-    a: "Software is built for the average customer in your industry. You are not the average customer. Off-the-shelf tools get you about 70 percent of the way to what you want and then stop. A developer keeps going, building exactly the thing your business needs, and changing it as your business changes. If you want something that does what you want, you don't need another subscription. You need a developer.",
+    a: "You know that thought you have a few times a week: 'I wish this software just did this.' That's what we build. Software is built for the average customer in your industry. You are not the average customer. Off-the-shelf tools get you about 70 percent of the way to what you want and then stop. A developer keeps going, building exactly the thing your business needs, and changing it as your business changes. If you want something that does what you want, you don't need another subscription. You need a developer.",
   },
   {
     q: 'How is this different from hiring a freelancer per project?',
