@@ -321,11 +321,11 @@ export default function LandingPage() {
               You stop paying for software that almost fits.
             </div>
             <div className="landing-why-desc">
-              Most small businesses are paying $400-1,200/month across half a
-              dozen tools (Squarespace, QuickBooks add-ons, scheduling apps,
-              CRM, hosting, email tools), none of which quite do the thing you
-              actually want. We replace the ones that don't fit and integrate
-              the ones that do.
+              Most small businesses we work with are paying for half a dozen
+              tools (a website builder, a CRM, scheduling software, accounting
+              add-ons, an email service, an industry-specific app), none of
+              which quite do the thing they actually want. We replace the
+              ones that don&apos;t fit and integrate the ones that do.
             </div>
           </div>
           <div className="landing-why-card landing-why-card-2">
@@ -486,7 +486,7 @@ export default function LandingPage() {
         <div>© {new Date().getFullYear()} GetXsite</div>
         <div className="landing-footer-links">
           <a href={BOOK_CALL_URL}>Book a call</a>
-          <a href="/app">Studio sign-in</a>
+          <a href="/app">Client login</a>
         </div>
       </footer>
     </div>
