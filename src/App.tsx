@@ -52,6 +52,22 @@ import { AgentClient, type AgentInfo } from './lib/agentClient';
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
 
+function useIsMobile(): boolean {
+  const query = '(max-width: 768px)';
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window === 'undefined' ? false : window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+}
+
+type MobilePane = 'files' | 'editor' | 'preview' | 'console';
+
 export default function App() {
   const [files, setFiles] = useState<FileEntry[]>(STARTER_FILES);
   const [activePath, setActivePath] = useState<string | null>('src/App.jsx');
@@ -101,6 +117,8 @@ export default function App() {
     { kind: 'new' } | { kind: 'edit'; preset: ModelPreset } | null
   >(null);
   const [tourOpen, setTourOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const [mobilePane, setMobilePane] = useState<MobilePane>('preview');
 
   useEffect(() => {
     let mounted = true;
@@ -1709,160 +1727,252 @@ export default function App() {
         onStartTour={() => setTourOpen(true)}
         currentBranch={currentBranch}
       />
-      <Group orientation="horizontal" className="main">
-        <Panel defaultSize={18} minSize={10} className="sidebar">
-          <div data-tour="projects-section">
-            <ProjectsSection
-              projects={projects}
-              activeId={activeProjectId}
-              canSave={!!currentRepoKey && !!currentBranch}
-              currentRepoKey={currentRepoKey}
-              currentBranch={currentBranch}
-              agent={agentRef.current}
-              agentInfo={agentInfo}
-              onOpen={openProject}
-              onSaveCurrent={saveCurrentProject}
-              onCreateLocal={createLocalProjectFromUI}
-              onRename={renameProject}
-              onDelete={deleteProject}
-              onSetGroup={setProjectGroup}
-              onRenameGroup={renameProjectGroup}
-            />
-          </div>
-          <div className="sidebar-divider">Search</div>
-          <div data-tour="search-panel">
-            <SearchPanel
-              files={files}
-              resetKey={activeProjectId}
-              onJumpTo={(hit) => {
-                setActivePath(hit.path);
-                setJumpTarget({
-                  path: hit.path,
-                  line: hit.line,
-                  column: hit.column,
-                  nonce: Date.now(),
-                });
-              }}
-            />
-          </div>
-          <div className="sidebar-divider">Files</div>
-          <div data-tour="file-tree">
-            <FileTree files={files} activePath={activePath} onSelect={setActivePath} />
-          </div>
-        </Panel>
-        <Separator className="resize-x" />
-        <Panel defaultSize={42} minSize={20}>
-          <Group orientation="vertical">
-            <Panel
-              defaultSize={70}
-              minSize={20}
-              className="editor-pane"
-              data-tour="editor-pane"
-            >
-              <div className="editor-wrap">
-                {agentMode && (
-                  <div className="editor-follow-bar">
-                    <label className="editor-follow-toggle">
-                      <input
-                        type="checkbox"
-                        checked={followEdits}
-                        onChange={(e) => setFollowEdits(e.target.checked)}
-                      />
-                      <span>Follow Claude's edits</span>
-                    </label>
-                    {activeFile && (
-                      <span className="editor-follow-path">
-                        {activeFile.path}
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div
-                  key={editorFlashKey}
-                  className={`editor-flash-host ${editorFlashKey ? 'flash' : ''}`}
-                >
-                  <CodeEditor
-                    path={activeFile?.path ?? null}
-                    value={
-                      activeFile && typeof activeFile.content === 'string'
-                        ? activeFile.content
-                        : ''
-                    }
-                    onChange={updateActiveFile}
-                    binary={activeFileIsBinary}
-                    jumpTo={jumpTarget}
+      {(() => {
+        const filesNode = (
+          <>
+            <div data-tour="projects-section">
+              <ProjectsSection
+                projects={projects}
+                activeId={activeProjectId}
+                canSave={!!currentRepoKey && !!currentBranch}
+                currentRepoKey={currentRepoKey}
+                currentBranch={currentBranch}
+                agent={agentRef.current}
+                agentInfo={agentInfo}
+                onOpen={openProject}
+                onSaveCurrent={saveCurrentProject}
+                onCreateLocal={createLocalProjectFromUI}
+                onRename={renameProject}
+                onDelete={deleteProject}
+                onSetGroup={setProjectGroup}
+                onRenameGroup={renameProjectGroup}
+              />
+            </div>
+            <div className="sidebar-divider">Search</div>
+            <div data-tour="search-panel">
+              <SearchPanel
+                files={files}
+                resetKey={activeProjectId}
+                onJumpTo={(hit) => {
+                  setActivePath(hit.path);
+                  setJumpTarget({
+                    path: hit.path,
+                    line: hit.line,
+                    column: hit.column,
+                    nonce: Date.now(),
+                  });
+                  if (isMobile) setMobilePane('editor');
+                }}
+              />
+            </div>
+            <div className="sidebar-divider">Files</div>
+            <div data-tour="file-tree">
+              <FileTree
+                files={files}
+                activePath={activePath}
+                onSelect={(p) => {
+                  setActivePath(p);
+                  if (isMobile) setMobilePane('editor');
+                }}
+              />
+            </div>
+          </>
+        );
+
+        const editorNode = (
+          <div className="editor-wrap">
+            {agentMode && (
+              <div className="editor-follow-bar">
+                <label className="editor-follow-toggle">
+                  <input
+                    type="checkbox"
+                    checked={followEdits}
+                    onChange={(e) => setFollowEdits(e.target.checked)}
                   />
-                </div>
+                  <span>Follow Claude's edits</span>
+                </label>
+                {activeFile && (
+                  <span className="editor-follow-path">
+                    {activeFile.path}
+                  </span>
+                )}
               </div>
-            </Panel>
-            <Separator className="resize-y" />
-            <Panel defaultSize={32} minSize={12}>
-              <div className="bottom-pane">
-                <div className="bottom-tabs" data-tour="bottom-tabs">
-                  <button
-                    className={`bottom-tab ${bottomTab === 'terminal' ? 'active' : ''}`}
-                    onClick={() => setBottomTab('terminal')}
-                  >
-                    Terminal
-                  </button>
-                  <button
-                    className={`bottom-tab ${bottomTab === 'chat' ? 'active' : ''}`}
-                    onClick={() => setBottomTab('chat')}
-                  >
-                    Chat
-                    {agentInfo && <span className="bottom-tab-dot" />}
-                  </button>
-                  {chatStatus && (
-                    <div className="bottom-tabs-status">
-                      <span className="bottom-tabs-status-spin" />
-                      <span className="bottom-tabs-status-text">
-                        {chatStatus}
-                      </span>
-                    </div>
-                  )}
+            )}
+            <div
+              key={editorFlashKey}
+              className={`editor-flash-host ${editorFlashKey ? 'flash' : ''}`}
+            >
+              <CodeEditor
+                path={activeFile?.path ?? null}
+                value={
+                  activeFile && typeof activeFile.content === 'string'
+                    ? activeFile.content
+                    : ''
+                }
+                onChange={updateActiveFile}
+                binary={activeFileIsBinary}
+                jumpTo={jumpTarget}
+              />
+            </div>
+          </div>
+        );
+
+        const consoleNode = (
+          <div className="bottom-pane">
+            <div className="bottom-tabs" data-tour="bottom-tabs">
+              <button
+                className={`bottom-tab ${bottomTab === 'terminal' ? 'active' : ''}`}
+                onClick={() => setBottomTab('terminal')}
+              >
+                Terminal
+              </button>
+              <button
+                className={`bottom-tab ${bottomTab === 'chat' ? 'active' : ''}`}
+                onClick={() => setBottomTab('chat')}
+              >
+                Chat
+                {agentInfo && <span className="bottom-tab-dot" />}
+              </button>
+              {chatStatus && (
+                <div className="bottom-tabs-status">
+                  <span className="bottom-tabs-status-spin" />
+                  <span className="bottom-tabs-status-text">
+                    {chatStatus}
+                  </span>
                 </div>
-                <div className="bottom-tab-body">
-                  <div
-                    className="bottom-tab-pane"
-                    data-tour={bottomTab === 'chat' ? undefined : undefined}
-                    style={{ display: bottomTab === 'terminal' ? 'block' : 'none' }}
-                  >
-                    <Terminal logs={logs} />
-                  </div>
-                  <div
-                    className="bottom-tab-pane"
-                    data-tour={bottomTab === 'chat' ? 'chat-panel' : undefined}
-                    style={{ display: bottomTab === 'chat' ? 'block' : 'none' }}
-                  >
-                    <ChatPanel
-                      agent={agentRef.current}
-                      agentInfo={agentInfo}
-                      userId={session.user.id}
-                      cwd={currentLocalPath ?? undefined}
-                      models={models}
-                      selectedModelId={selectedModelId}
-                      onSelectModel={selectModel}
-                      onAddModel={() => setModelModal({ kind: 'new' })}
-                      onManageModels={() => setSettingsOpen(true)}
-                      onStatusChange={setChatStatus}
-                    />
-                  </div>
-                </div>
+              )}
+            </div>
+            <div className="bottom-tab-body">
+              <div
+                className="bottom-tab-pane"
+                style={{ display: bottomTab === 'terminal' ? 'block' : 'none' }}
+              >
+                <Terminal logs={logs} />
               </div>
-            </Panel>
-          </Group>
-        </Panel>
-        <Separator className="resize-x" />
-        <Panel defaultSize={40} minSize={20} data-tour="preview-pane">
+              <div
+                className="bottom-tab-pane"
+                data-tour={bottomTab === 'chat' ? 'chat-panel' : undefined}
+                style={{ display: bottomTab === 'chat' ? 'block' : 'none' }}
+              >
+                <ChatPanel
+                  agent={agentRef.current}
+                  agentInfo={agentInfo}
+                  userId={session.user.id}
+                  cwd={currentLocalPath ?? undefined}
+                  models={models}
+                  selectedModelId={selectedModelId}
+                  onSelectModel={selectModel}
+                  onAddModel={() => setModelModal({ kind: 'new' })}
+                  onManageModels={() => setSettingsOpen(true)}
+                  onStatusChange={setChatStatus}
+                />
+              </div>
+            </div>
+          </div>
+        );
+
+        const previewNode = (
           <Preview
             url={previewUrl}
             status={status}
             devError={devError}
             onDismissError={() => setDevError(null)}
-            onJumpToTerminal={() => setBottomTab('terminal')}
+            onJumpToTerminal={() => {
+              setBottomTab('terminal');
+              if (isMobile) setMobilePane('console');
+            }}
           />
-        </Panel>
-      </Group>
+        );
+
+        if (isMobile) {
+          return (
+            <div className="mobile-shell">
+              <div className="mobile-panes">
+                <div
+                  className="mobile-pane mobile-pane-sidebar"
+                  data-active={mobilePane === 'files'}
+                >
+                  {filesNode}
+                </div>
+                <div
+                  className="mobile-pane"
+                  data-active={mobilePane === 'editor'}
+                >
+                  {editorNode}
+                </div>
+                <div
+                  className="mobile-pane"
+                  data-active={mobilePane === 'preview'}
+                >
+                  {previewNode}
+                </div>
+                <div
+                  className="mobile-pane"
+                  data-active={mobilePane === 'console'}
+                >
+                  {consoleNode}
+                </div>
+              </div>
+              <nav className="mobile-nav">
+                <button
+                  className={`mobile-nav-tab ${mobilePane === 'files' ? 'active' : ''}`}
+                  onClick={() => setMobilePane('files')}
+                >
+                  Files
+                </button>
+                <button
+                  className={`mobile-nav-tab ${mobilePane === 'editor' ? 'active' : ''}`}
+                  onClick={() => setMobilePane('editor')}
+                >
+                  Editor
+                </button>
+                <button
+                  className={`mobile-nav-tab ${mobilePane === 'preview' ? 'active' : ''}`}
+                  onClick={() => setMobilePane('preview')}
+                >
+                  Preview
+                </button>
+                <button
+                  className={`mobile-nav-tab ${mobilePane === 'console' ? 'active' : ''}`}
+                  onClick={() => setMobilePane('console')}
+                >
+                  Console
+                  {agentInfo && <span className="bottom-tab-dot" />}
+                </button>
+              </nav>
+            </div>
+          );
+        }
+
+        return (
+          <Group orientation="horizontal" className="main">
+            <Panel defaultSize={18} minSize={10} className="sidebar">
+              {filesNode}
+            </Panel>
+            <Separator className="resize-x" />
+            <Panel defaultSize={42} minSize={20}>
+              <Group orientation="vertical">
+                <Panel
+                  defaultSize={70}
+                  minSize={20}
+                  className="editor-pane"
+                  data-tour="editor-pane"
+                >
+                  {editorNode}
+                </Panel>
+                <Separator className="resize-y" />
+                <Panel defaultSize={32} minSize={12}>
+                  {consoleNode}
+                </Panel>
+              </Group>
+            </Panel>
+            <Separator className="resize-x" />
+            <Panel defaultSize={40} minSize={20} data-tour="preview-pane">
+              {previewNode}
+            </Panel>
+          </Group>
+        );
+      })()}
     </div>
     </>
   );
