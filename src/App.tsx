@@ -377,6 +377,17 @@ export default function App() {
   );
 
   useEffect(() => {
+    // WebContainer's npm install hangs forever on mobile browsers (Chrome
+    // Android, Samsung Internet). Skip the boot — otherwise the terminal
+    // streams install spam indefinitely and the preview never resolves.
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      log(
+        "Run/Preview isn't supported on phones — WebContainer can't finish npm install on mobile browsers. Open this on desktop to run a dev server. You can still browse, edit, and push code from here.",
+        'info',
+      );
+      setStatus('mobile: edit only');
+      return;
+    }
     if (!globalThis.crossOriginIsolated) {
       const host = window.location.hostname;
       const secureHost =

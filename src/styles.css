@@ -2574,6 +2574,9 @@ button.primary:hover:not(:disabled) {
   justify-content: center;
   color: var(--fg-dim);
   background: var(--bg);
+  padding: 24px;
+  text-align: center;
+  line-height: 1.5;
 }
 
 .terminal {
