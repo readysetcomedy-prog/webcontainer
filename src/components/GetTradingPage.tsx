@@ -73,6 +73,49 @@ const RANGE_CONFIG: Record<
 
 const SL_PCT_KEY = 'gettrading.defaultStopLossPct';
 const TP_PCT_KEY = 'gettrading.defaultTakeProfitPct';
+const SIGNAL_SETTINGS_KEY = 'gettrading.signalSettings';
+const SIGNAL_NOTIFY_KEY = 'gettrading.signalNotify';
+const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
+const SIGNAL_MAX = 50;
+
+interface SignalSettings {
+  bigMoverPct: number;
+  positionPnlPct: number;
+}
+
+type SignalSeverity = 'normal' | 'high';
+
+interface Signal {
+  id: string;
+  ts: number;
+  symbol: string;
+  type: 'bigmover' | 'position';
+  message: string;
+  severity: SignalSeverity;
+}
+
+function readSignalSettings(): SignalSettings {
+  if (typeof window === 'undefined') return { bigMoverPct: 3, positionPnlPct: 5 };
+  try {
+    const raw = localStorage.getItem(SIGNAL_SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SignalSettings>;
+      return {
+        bigMoverPct:
+          typeof parsed.bigMoverPct === 'number' && parsed.bigMoverPct > 0
+            ? parsed.bigMoverPct
+            : 3,
+        positionPnlPct:
+          typeof parsed.positionPnlPct === 'number' && parsed.positionPnlPct > 0
+            ? parsed.positionPnlPct
+            : 5,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { bigMoverPct: 3, positionPnlPct: 5 };
+}
 
 function readPct(key: string, fallback: number): number {
   if (typeof window === 'undefined') return fallback;
@@ -177,6 +220,14 @@ export default function GetTradingPage() {
   const [chartRange, setChartRange] = useState<ChartRange>(readChartRange);
   const [defaultSlPct, setDefaultSlPct] = useState<number>(() => readPct(SL_PCT_KEY, 5));
   const [defaultTpPct, setDefaultTpPct] = useState<number>(() => readPct(TP_PCT_KEY, 10));
+  const [signalSettings, setSignalSettings] = useState<SignalSettings>(readSignalSettings);
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [notifyEnabled, setNotifyEnabled] = useState<boolean>(() =>
+    typeof window === 'undefined'
+      ? false
+      : localStorage.getItem(SIGNAL_NOTIFY_KEY) === '1',
+  );
+  const signalCooldownRef = useRef<Record<string, number>>({});
   const [bars, setBars] = useState<AlpacaBar[]>([]);
   const [barsLoading, setBarsLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed);
@@ -207,6 +258,65 @@ export default function GetTradingPage() {
   useEffect(() => {
     localStorage.setItem(TP_PCT_KEY, String(defaultTpPct));
   }, [defaultTpPct]);
+
+  useEffect(() => {
+    localStorage.setItem(SIGNAL_SETTINGS_KEY, JSON.stringify(signalSettings));
+  }, [signalSettings]);
+
+  useEffect(() => {
+    localStorage.setItem(SIGNAL_NOTIFY_KEY, notifyEnabled ? '1' : '0');
+  }, [notifyEnabled]);
+
+  // Detect signals whenever snapshots or positions update. Per (symbol,type)
+  // cooldown keeps the same condition from spamming the feed.
+  useEffect(() => {
+    if (Object.keys(snapshots).length === 0) return;
+    const now = Date.now();
+    const fired: Signal[] = [];
+    const fire = (key: string, s: Omit<Signal, 'id' | 'ts'>) => {
+      const last = signalCooldownRef.current[key] ?? 0;
+      if (now - last < SIGNAL_COOLDOWN_MS) return;
+      signalCooldownRef.current[key] = now;
+      fired.push({ ...s, id: `${key}:${now}`, ts: now });
+    };
+
+    for (const sym of watchlist) {
+      const snap = snapshots[sym];
+      if (!snap || !Number.isFinite(snap.changePct)) continue;
+      const pct = snap.changePct * 100;
+      if (Math.abs(pct) >= signalSettings.bigMoverPct) {
+        fire(`${sym}:bigmover`, {
+          symbol: sym,
+          type: 'bigmover',
+          severity: Math.abs(pct) >= signalSettings.bigMoverPct * 2 ? 'high' : 'normal',
+          message: `${sym} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}% today (${fmtMoney(snap.last)})`,
+        });
+      }
+    }
+
+    for (const pos of positions) {
+      const plpc = parseFloat(pos.unrealized_plpc) * 100;
+      const pl = parseFloat(pos.unrealized_pl);
+      if (!Number.isFinite(plpc)) continue;
+      if (Math.abs(plpc) >= signalSettings.positionPnlPct) {
+        fire(`${pos.symbol}:position`, {
+          symbol: pos.symbol,
+          type: 'position',
+          severity: Math.abs(plpc) >= signalSettings.positionPnlPct * 2 ? 'high' : 'normal',
+          message: `${pos.symbol} position ${plpc >= 0 ? '+' : ''}${plpc.toFixed(2)}% (${pl >= 0 ? '+' : ''}${fmtMoney(pl)})`,
+        });
+      }
+    }
+
+    if (fired.length > 0) {
+      setSignals((prev) => [...fired, ...prev].slice(0, SIGNAL_MAX));
+      if (notifyEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        for (const s of fired) {
+          new Notification(`GetTrading: ${s.symbol}`, { body: s.message });
+        }
+      }
+    }
+  }, [snapshots, positions, watchlist, signalSettings, notifyEnabled]);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
@@ -280,6 +390,24 @@ export default function GetTradingPage() {
     setToast({ kind, msg });
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const enableNotifications = useCallback(async () => {
+    if (typeof Notification === 'undefined') {
+      notify('err', 'This browser does not support notifications.');
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      setNotifyEnabled(true);
+      return;
+    }
+    const result = await Notification.requestPermission();
+    if (result === 'granted') {
+      setNotifyEnabled(true);
+      notify('ok', 'Browser notifications enabled.');
+    } else {
+      notify('err', 'Notification permission denied. Check browser settings.');
+    }
+  }, [notify]);
 
   const handlePlaceOrder = useCallback(
     async (input: Parameters<typeof placeOrder>[1]) => {
@@ -498,6 +626,83 @@ export default function GetTradingPage() {
           />
         </section>
       </div>
+
+      <CollapsiblePanel
+        wide
+        title={`Signals${signals.length ? ` (${signals.length})` : ''}`}
+        collapsed={!!collapsed.signals}
+        onToggle={() => toggleCollapsed('signals')}
+        headerRight={
+          <div className="gt-signal-controls">
+            <label>
+              Mover ≥
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                value={signalSettings.bigMoverPct}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (Number.isFinite(v) && v > 0) {
+                    setSignalSettings((s) => ({ ...s, bigMoverPct: v }));
+                  }
+                }}
+              />
+              %
+            </label>
+            <label>
+              Position ≥
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                value={signalSettings.positionPnlPct}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (Number.isFinite(v) && v > 0) {
+                    setSignalSettings((s) => ({ ...s, positionPnlPct: v }));
+                  }
+                }}
+              />
+              %
+            </label>
+            {notifyEnabled ? (
+              <span className="gt-notify-on" title="Browser notifications enabled">
+                🔔
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="gt-link"
+                onClick={enableNotifications}
+              >
+                enable notifications
+              </button>
+            )}
+            {signals.length > 0 && (
+              <button
+                type="button"
+                className="gt-link"
+                onClick={() => {
+                  setSignals([]);
+                  signalCooldownRef.current = {};
+                }}
+              >
+                clear
+              </button>
+            )}
+          </div>
+        }
+      >
+        <SignalsFeed
+          signals={signals}
+          onSelect={setSelectedSymbol}
+          onDismiss={(id) =>
+            setSignals((prev) => prev.filter((s) => s.id !== id))
+          }
+          watchedCount={watchlist.length}
+        />
+      </CollapsiblePanel>
 
       <CollapsiblePanel
         wide
@@ -1186,6 +1391,53 @@ function Watchlist({
         </table>
       </div>
     </div>
+  );
+}
+
+function SignalsFeed({
+  signals,
+  onSelect,
+  onDismiss,
+  watchedCount,
+}: {
+  signals: Signal[];
+  onSelect: (s: string) => void;
+  onDismiss: (id: string) => void;
+  watchedCount: number;
+}) {
+  if (signals.length === 0) {
+    return (
+      <div className="gt-empty">
+        Watching {watchedCount} symbols. No signals yet — adjust the thresholds
+        above if you want to be alerted on smaller moves.
+      </div>
+    );
+  }
+  return (
+    <ul className="gt-signal-list">
+      {signals.map((s) => (
+        <li key={s.id} className={`gt-signal gt-signal-${s.severity}`}>
+          <time className="gt-signal-time">
+            {new Date(s.ts).toLocaleTimeString()}
+          </time>
+          <button
+            className="gt-sym gt-link"
+            onClick={() => onSelect(s.symbol)}
+            title="Use this symbol in the order form"
+          >
+            {s.symbol}
+          </button>
+          <span className="gt-signal-msg">{s.message}</span>
+          <button
+            className="gt-link gt-signal-dismiss"
+            onClick={() => onDismiss(s.id)}
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
