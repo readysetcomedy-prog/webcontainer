@@ -28,7 +28,7 @@ const WATCHLIST_KEY = 'gettrading.watchlist';
 const WATCHLIST_VERSION_KEY = 'gettrading.watchlistDefaultsVersion';
 // Bump this whenever DEFAULT_WATCHLIST gets new symbols so existing users
 // get the additions merged in on next load.
-const WATCHLIST_DEFAULTS_VERSION = '2';
+const WATCHLIST_DEFAULTS_VERSION = '3';
 const CHART_SYMBOL_KEY = 'gettrading.chartSymbol';
 const CHART_RANGE_KEY = 'gettrading.chartRange';
 const COLLAPSED_KEY = 'gettrading.collapsed';
@@ -46,14 +46,24 @@ const DEFAULT_WATCHLIST = [
   'JPM', 'GS',
   // Retail-favorite / meme
   'GME', 'AMC', 'SOFI', 'UBER',
-  // +20 most fluid US large-caps (highest dollar-volume)
+  // Most fluid US large-caps (highest dollar-volume)
   'LLY', 'UNH', 'V', 'MA', 'HD', 'COST', 'WMT',
   'XOM', 'CVX', 'BAC', 'WFC',
   'DIS', 'ABBV', 'ORCL', 'CRM',
   'INTC', 'MU', 'QCOM', 'SNOW', 'SHOP',
+  // +30: Chinese ADRs, EVs, miners, healthcare, consumer staples, semis,
+  // SaaS, sector ETFs
+  'TSM', 'BABA', 'BIDU', 'NIO', 'RIVN',
+  'F', 'GM',
+  'HOOD', 'RIOT', 'MARA',
+  'PFE', 'MRK', 'JNJ',
+  'SBUX', 'MCD', 'NKE', 'KO', 'PEP',
+  'AMAT', 'ASML', 'LRCX',
+  'CRWD', 'NET', 'DDOG',
+  'ARKK', 'DIA', 'XLE', 'XLF', 'GLD', 'TLT',
 ];
 
-const MAX_WATCHLIST = 75;
+const MAX_WATCHLIST = 100;
 
 type ChartRange = '1D' | '5D' | '1H' | '1Mo' | '1Y' | '5Y';
 
@@ -1291,6 +1301,8 @@ function OrdersTable({
   );
 }
 
+type PctSort = 'none' | 'pct_desc' | 'pct_asc';
+
 function Watchlist({
   symbols,
   snapshots,
@@ -1307,25 +1319,44 @@ function Watchlist({
   onSelect: (s: string) => void;
 }) {
   const [input, setInput] = useState('');
+  const [pctSort, setPctSort] = useState<PctSort>('none');
   const lastPrices = useRef<Record<string, number>>({});
 
-  const rows = useMemo(
-    () =>
-      symbols.map((s) => {
-        const snap = snapshots[s];
-        const last = snap?.last;
-        const prev = lastPrices.current[s];
-        if (last !== undefined && last > 0) lastPrices.current[s] = last;
-        const tickDir =
-          last !== undefined && prev !== undefined && last !== prev
-            ? last > prev
-              ? 'up'
-              : 'down'
-            : 'flat';
-        return { symbol: s, snap, last, tickDir };
-      }),
-    [symbols, snapshots],
-  );
+  const rows = useMemo(() => {
+    const base = symbols.map((s) => {
+      const snap = snapshots[s];
+      const last = snap?.last;
+      const prev = lastPrices.current[s];
+      if (last !== undefined && last > 0) lastPrices.current[s] = last;
+      const tickDir =
+        last !== undefined && prev !== undefined && last !== prev
+          ? last > prev
+            ? 'up'
+            : 'down'
+          : 'flat';
+      return { symbol: s, snap, last, tickDir };
+    });
+    if (pctSort === 'none') return base;
+    return [...base].sort((a, b) => {
+      const aHas =
+        a.snap && Number.isFinite(a.snap.changePct);
+      const bHas =
+        b.snap && Number.isFinite(b.snap.changePct);
+      // Symbols without snapshot data sink to the bottom regardless of direction.
+      if (!aHas && !bHas) return 0;
+      if (!aHas) return 1;
+      if (!bHas) return -1;
+      const diff = b.snap!.changePct - a.snap!.changePct;
+      return pctSort === 'pct_desc' ? diff : -diff;
+    });
+  }, [symbols, snapshots, pctSort]);
+
+  const cyclePctSort = () =>
+    setPctSort((cur) =>
+      cur === 'none' ? 'pct_desc' : cur === 'pct_desc' ? 'pct_asc' : 'none',
+    );
+  const pctSortIndicator =
+    pctSort === 'pct_desc' ? ' ▼' : pctSort === 'pct_asc' ? ' ▲' : '';
 
   return (
     <div>
@@ -1354,7 +1385,19 @@ function Watchlist({
             <tr>
               <th>Symbol</th>
               <th>Last</th>
-              <th>%</th>
+              <th
+                className="gt-sortable"
+                onClick={cyclePctSort}
+                title={
+                  pctSort === 'none'
+                    ? 'Sort by gainers first'
+                    : pctSort === 'pct_desc'
+                    ? 'Sort by losers first'
+                    : 'Clear sort'
+                }
+              >
+                %{pctSortIndicator}
+              </th>
               <th></th>
             </tr>
           </thead>

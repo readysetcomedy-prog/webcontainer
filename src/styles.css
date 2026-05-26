@@ -689,6 +689,15 @@ html, body, #root {
   letter-spacing: 0.6px;
 }
 
+.gt-table th.gt-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.gt-table th.gt-sortable:hover {
+  color: var(--fg);
+}
+
 .gt-sym {
   font-weight: 600;
 }
