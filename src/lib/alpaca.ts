@@ -70,6 +70,13 @@ export interface AlpacaOrder {
   filled_avg_price: string | null;
 }
 
+export type OrderClass = 'simple' | 'bracket' | 'oco' | 'oto';
+
+export interface BracketLeg {
+  limit_price?: number;
+  stop_price?: number;
+}
+
 export interface PlaceOrderInput {
   symbol: string;
   qty?: number;
@@ -80,6 +87,9 @@ export interface PlaceOrderInput {
   limit_price?: number;
   stop_price?: number;
   extended_hours?: boolean;
+  order_class?: OrderClass;
+  take_profit?: { limit_price: number };
+  stop_loss?: { stop_price: number; limit_price?: number };
 }
 
 export interface LatestQuote {
@@ -299,7 +309,8 @@ export type AlpacaTimeframe =
   | '15Min'
   | '30Min'
   | '1Hour'
-  | '1Day';
+  | '1Day'
+  | '1Week';
 
 export async function getBars(
   env: AlpacaEnv,

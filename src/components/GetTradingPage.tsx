@@ -55,16 +55,31 @@ const DEFAULT_WATCHLIST = [
 
 const MAX_WATCHLIST = 75;
 
-type ChartRange = '1D' | '5D' | '1H';
+type ChartRange = '1D' | '5D' | '1H' | '1Mo' | '1Y' | '5Y';
+
+const RANGE_ORDER: ChartRange[] = ['1D', '5D', '1H', '1Mo', '1Y', '5Y'];
 
 const RANGE_CONFIG: Record<
   ChartRange,
   { timeframe: AlpacaTimeframe; lookbackDays: number; intraday: boolean; label: string }
 > = {
-  '1D': { timeframe: '5Min', lookbackDays: 2, intraday: true, label: '1 day' },
-  '5D': { timeframe: '15Min', lookbackDays: 8, intraday: true, label: '5 days' },
-  '1H': { timeframe: '1Hour', lookbackDays: 30, intraday: true, label: '1 hour bars · 30 days' },
+  '1D': { timeframe: '5Min', lookbackDays: 2, intraday: true, label: '1 day (5-min bars)' },
+  '5D': { timeframe: '15Min', lookbackDays: 8, intraday: true, label: '5 days (15-min bars)' },
+  '1H': { timeframe: '1Hour', lookbackDays: 30, intraday: true, label: '1-hour bars · 30 days' },
+  '1Mo': { timeframe: '1Day', lookbackDays: 35, intraday: false, label: '1 month (daily)' },
+  '1Y': { timeframe: '1Day', lookbackDays: 400, intraday: false, label: '1 year (daily)' },
+  '5Y': { timeframe: '1Week', lookbackDays: 1900, intraday: false, label: '5 years (weekly)' },
 };
+
+const SL_PCT_KEY = 'gettrading.defaultStopLossPct';
+const TP_PCT_KEY = 'gettrading.defaultTakeProfitPct';
+
+function readPct(key: string, fallback: number): number {
+  if (typeof window === 'undefined') return fallback;
+  const raw = localStorage.getItem(key);
+  const v = raw == null ? NaN : parseFloat(raw);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
 
 function readEnv(): AlpacaEnv {
   if (typeof window === 'undefined') return 'paper';
@@ -121,7 +136,7 @@ function readCollapsed(): Record<string, boolean> {
 function readChartRange(): ChartRange {
   if (typeof window === 'undefined') return '1D';
   const v = localStorage.getItem(CHART_RANGE_KEY);
-  return v === '5D' || v === '1H' || v === '1D' ? v : '1D';
+  return (RANGE_ORDER as string[]).includes(v ?? '') ? (v as ChartRange) : '1D';
 }
 
 function fmtMoney(n: number | string | null | undefined, currency = 'USD') {
@@ -160,6 +175,8 @@ export default function GetTradingPage() {
     () => localStorage.getItem(CHART_SYMBOL_KEY) ?? readWatchlist()[0] ?? 'AAPL',
   );
   const [chartRange, setChartRange] = useState<ChartRange>(readChartRange);
+  const [defaultSlPct, setDefaultSlPct] = useState<number>(() => readPct(SL_PCT_KEY, 5));
+  const [defaultTpPct, setDefaultTpPct] = useState<number>(() => readPct(TP_PCT_KEY, 10));
   const [bars, setBars] = useState<AlpacaBar[]>([]);
   const [barsLoading, setBarsLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed);
@@ -182,6 +199,14 @@ export default function GetTradingPage() {
   useEffect(() => {
     localStorage.setItem(CHART_RANGE_KEY, chartRange);
   }, [chartRange]);
+
+  useEffect(() => {
+    localStorage.setItem(SL_PCT_KEY, String(defaultSlPct));
+  }, [defaultSlPct]);
+
+  useEffect(() => {
+    localStorage.setItem(TP_PCT_KEY, String(defaultTpPct));
+  }, [defaultTpPct]);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
@@ -303,6 +328,47 @@ export default function GetTradingPage() {
     [env, notify, refreshAccountState],
   );
 
+  const handleSetPositionSLTP = useCallback(
+    async (p: AlpacaPosition) => {
+      const snap = snapshots[p.symbol];
+      const last = snap?.last ?? parseFloat(p.current_price);
+      const isLong = p.side === 'long';
+      const slDefault = (last * (isLong ? 1 - defaultSlPct / 100 : 1 + defaultSlPct / 100)).toFixed(2);
+      const tpDefault = (last * (isLong ? 1 + defaultTpPct / 100 : 1 - defaultTpPct / 100)).toFixed(2);
+      const slStr = prompt(
+        `Stop loss for ${p.symbol} (${p.side}, last ${fmtMoney(last)}):`,
+        slDefault,
+      );
+      if (slStr === null) return;
+      const tpStr = prompt(`Take profit for ${p.symbol}:`, tpDefault);
+      if (tpStr === null) return;
+      const sl = parseFloat(slStr);
+      const tp = parseFloat(tpStr);
+      if (!Number.isFinite(sl) || !Number.isFinite(tp)) {
+        notify('err', 'Invalid stop or target price.');
+        return;
+      }
+      try {
+        await placeOrder(env, {
+          symbol: p.symbol,
+          qty: Math.abs(parseFloat(p.qty)),
+          side: isLong ? 'sell' : 'buy',
+          type: 'limit',
+          time_in_force: 'gtc',
+          limit_price: tp,
+          order_class: 'oco',
+          take_profit: { limit_price: tp },
+          stop_loss: { stop_price: sl },
+        });
+        notify('ok', `${p.symbol} SL/TP placed (OCO ${fmtMoney(sl)} / ${fmtMoney(tp)})`);
+        await refreshAccountState();
+      } catch (e) {
+        notify('err', (e as Error).message);
+      }
+    },
+    [env, snapshots, defaultSlPct, defaultTpPct, notify, refreshAccountState],
+  );
+
   const chartSnap = snapshots[selectedSymbol];
   const rangeCfg = RANGE_CONFIG[chartRange];
 
@@ -381,6 +447,10 @@ export default function GetTradingPage() {
             busy={busy}
             symbol={selectedSymbol}
             snapshots={snapshots}
+            defaultSlPct={defaultSlPct}
+            defaultTpPct={defaultTpPct}
+            onChangeDefaultSlPct={setDefaultSlPct}
+            onChangeDefaultTpPct={setDefaultTpPct}
             onSubmit={handlePlaceOrder}
           />
         </section>
@@ -392,6 +462,7 @@ export default function GetTradingPage() {
             snapshots={snapshots}
             onClose={handleClosePosition}
             onSelect={setSelectedSymbol}
+            onSetSLTP={handleSetPositionSLTP}
           />
         </section>
 
@@ -448,7 +519,7 @@ export default function GetTradingPage() {
               </>
             )}
             <div className="gt-tf-toggle" role="group" aria-label="Timeframe">
-              {(['1D', '5D', '1H'] as ChartRange[]).map((r) => (
+              {RANGE_ORDER.map((r) => (
                 <button
                   key={r}
                   type="button"
@@ -543,19 +614,20 @@ function OrderEntry({
   busy,
   symbol: externalSymbol,
   snapshots,
+  defaultSlPct,
+  defaultTpPct,
+  onChangeDefaultSlPct,
+  onChangeDefaultTpPct,
   onSubmit,
 }: {
   busy: boolean;
   symbol: string;
   snapshots: Record<string, AlpacaSnapshot>;
-  onSubmit: (input: {
-    symbol: string;
-    qty?: number;
-    side: OrderSide;
-    type: OrderType;
-    time_in_force: TimeInForce;
-    limit_price?: number;
-  }) => void;
+  defaultSlPct: number;
+  defaultTpPct: number;
+  onChangeDefaultSlPct: (n: number) => void;
+  onChangeDefaultTpPct: (n: number) => void;
+  onSubmit: (input: import('../lib/alpaca').PlaceOrderInput) => void;
 }) {
   const [symbol, setSymbol] = useState(externalSymbol);
   const [side, setSide] = useState<OrderSide>('buy');
@@ -563,32 +635,83 @@ function OrderEntry({
   const [qty, setQty] = useState('1');
   const [limit, setLimit] = useState('');
   const [tif, setTif] = useState<TimeInForce>('day');
+  const [stopPrice, setStopPrice] = useState('');
+  const [takePrice, setTakePrice] = useState('');
+  const computedForRef = useRef<string>('');
 
-  // Sync from parent (chip / watchlist row click). Keeps other fields intact.
+  // Sync symbol from parent (chip / watchlist row click). Mark SL/TP as needing
+  // recompute for the new symbol.
   useEffect(() => {
     setSymbol(externalSymbol);
+    computedForRef.current = '';
   }, [externalSymbol]);
 
   const sym = symbol.trim().toUpperCase();
   const snap = snapshots[sym];
+
+  // When we first get a price for the current (symbol, side) combo, compute
+  // SL/TP from the user's default percentages. Skip after that so live ticks
+  // don't overwrite the user's edits.
+  useEffect(() => {
+    const key = `${sym}|${side}`;
+    if (!sym || !snap?.last || computedForRef.current === key) return;
+    const slMul = side === 'buy' ? 1 - defaultSlPct / 100 : 1 + defaultSlPct / 100;
+    const tpMul = side === 'buy' ? 1 + defaultTpPct / 100 : 1 - defaultTpPct / 100;
+    setStopPrice((snap.last * slMul).toFixed(2));
+    setTakePrice((snap.last * tpMul).toFixed(2));
+    computedForRef.current = key;
+  }, [sym, side, snap?.last, defaultSlPct, defaultTpPct]);
+
+  function recomputeFromDefaults() {
+    if (!snap?.last) return;
+    const slMul = side === 'buy' ? 1 - defaultSlPct / 100 : 1 + defaultSlPct / 100;
+    const tpMul = side === 'buy' ? 1 + defaultTpPct / 100 : 1 - defaultTpPct / 100;
+    setStopPrice((snap.last * slMul).toFixed(2));
+    setTakePrice((snap.last * tpMul).toFixed(2));
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!sym) return;
     const qtyNum = parseFloat(qty);
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) return;
-    const payload = {
+    const sl = parseFloat(stopPrice);
+    const tp = parseFloat(takePrice);
+    const hasSL = Number.isFinite(sl) && sl > 0;
+    const hasTP = Number.isFinite(tp) && tp > 0;
+    // Brackets/OTO require day or gtc TIF on the parent.
+    const effectiveTif: TimeInForce =
+      hasSL || hasTP ? (tif === 'day' || tif === 'gtc' ? tif : 'day') : tif;
+    const payload: import('../lib/alpaca').PlaceOrderInput = {
       symbol: sym,
       qty: qtyNum,
       side,
       type,
-      time_in_force: tif,
+      time_in_force: effectiveTif,
       ...(type === 'limit' || type === 'stop_limit'
         ? { limit_price: parseFloat(limit) }
         : {}),
     };
+    if (hasSL && hasTP) {
+      payload.order_class = 'bracket';
+      payload.stop_loss = { stop_price: sl };
+      payload.take_profit = { limit_price: tp };
+    } else if (hasSL) {
+      payload.order_class = 'oto';
+      payload.stop_loss = { stop_price: sl };
+    } else if (hasTP) {
+      payload.order_class = 'oto';
+      payload.take_profit = { limit_price: tp };
+    }
     onSubmit(payload);
   }
+
+  const sl = parseFloat(stopPrice);
+  const tp = parseFloat(takePrice);
+  const slPctActual =
+    Number.isFinite(sl) && snap?.last ? ((sl - snap.last) / snap.last) * 100 : null;
+  const tpPctActual =
+    Number.isFinite(tp) && snap?.last ? ((tp - snap.last) / snap.last) * 100 : null;
 
   return (
     <form className="gt-order-form" onSubmit={submit}>
@@ -667,6 +790,84 @@ function OrderEntry({
           <option value="fok">FOK</option>
         </select>
       </label>
+      <div className="gt-bracket gt-field-wide">
+        <div className="gt-bracket-row">
+          <label className="gt-field">
+            <span>
+              Stop loss{' '}
+              {slPctActual !== null && (
+                <em className={slPctActual < 0 ? 'neg' : 'pos'}>
+                  {slPctActual > 0 ? '+' : ''}
+                  {slPctActual.toFixed(1)}%
+                </em>
+              )}
+            </span>
+            <input
+              type="number"
+              step="any"
+              value={stopPrice}
+              onChange={(e) => setStopPrice(e.target.value)}
+              placeholder="off"
+            />
+          </label>
+          <label className="gt-field">
+            <span>
+              Take profit{' '}
+              {tpPctActual !== null && (
+                <em className={tpPctActual >= 0 ? 'pos' : 'neg'}>
+                  {tpPctActual > 0 ? '+' : ''}
+                  {tpPctActual.toFixed(1)}%
+                </em>
+              )}
+            </span>
+            <input
+              type="number"
+              step="any"
+              value={takePrice}
+              onChange={(e) => setTakePrice(e.target.value)}
+              placeholder="off"
+            />
+          </label>
+        </div>
+        <div className="gt-bracket-defaults">
+          <span>Defaults</span>
+          <label>
+            SL
+            <input
+              type="number"
+              step="any"
+              value={defaultSlPct}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v) && v > 0) onChangeDefaultSlPct(v);
+              }}
+            />
+            %
+          </label>
+          <label>
+            TP
+            <input
+              type="number"
+              step="any"
+              value={defaultTpPct}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v) && v > 0) onChangeDefaultTpPct(v);
+              }}
+            />
+            %
+          </label>
+          <button
+            type="button"
+            className="gt-link"
+            onClick={recomputeFromDefaults}
+            disabled={!snap?.last}
+            title="Recompute SL/TP from defaults at current price"
+          >
+            apply
+          </button>
+        </div>
+      </div>
       <button
         type="submit"
         className={`gt-submit ${side}`}
@@ -683,11 +884,13 @@ function PositionsTable({
   snapshots,
   onClose,
   onSelect,
+  onSetSLTP,
 }: {
   positions: AlpacaPosition[];
   snapshots: Record<string, AlpacaSnapshot>;
   onClose: (symbol: string) => void;
   onSelect: (symbol: string) => void;
+  onSetSLTP: (p: AlpacaPosition) => void;
 }) {
   if (positions.length === 0) {
     return <div className="gt-empty">No open positions.</div>;
@@ -729,6 +932,13 @@ function PositionsTable({
                   {fmtMoney(p.unrealized_pl)} ({fmtPct(p.unrealized_plpc)})
                 </td>
                 <td>
+                  <button
+                    className="gt-link"
+                    onClick={() => onSetSLTP(p)}
+                    title="Set stop loss / take profit (OCO)"
+                  >
+                    SL/TP
+                  </button>{' '}
                   <button
                     className="gt-link"
                     onClick={() => onClose(p.symbol)}

@@ -454,6 +454,56 @@ html, body, #root {
   color: #fff;
 }
 
+.gt-bracket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.gt-bracket-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.gt-bracket .gt-field span em {
+  font-style: normal;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.gt-bracket-defaults {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gt-bracket-defaults label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.gt-bracket-defaults input {
+  width: 50px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
 .gt-submit {
   grid-column: 1 / -1;
   padding: 10px;
