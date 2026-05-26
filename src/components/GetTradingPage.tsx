@@ -1178,6 +1178,7 @@ function PositionsTable({
         <thead>
           <tr>
             <th>Symbol</th>
+            <th>Side</th>
             <th>Qty</th>
             <th>Avg</th>
             <th>Last</th>
@@ -1195,6 +1196,7 @@ function PositionsTable({
             const qtyDisplay = Number.isInteger(qtyNum)
               ? String(qtyNum)
               : qtyNum.toFixed(4);
+            const isLong = p.side === 'long';
             return (
               <tr key={p.asset_id}>
                 <td>
@@ -1204,6 +1206,9 @@ function PositionsTable({
                   >
                     {p.symbol}
                   </button>
+                </td>
+                <td className={isLong ? 'pos' : 'neg'}>
+                  {isLong ? 'LONG' : 'SHORT'}
                 </td>
                 <td>{qtyDisplay}</td>
                 <td>{fmtMoney(p.avg_entry_price)}</td>
