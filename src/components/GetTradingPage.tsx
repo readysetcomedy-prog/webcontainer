@@ -458,14 +458,61 @@ export default function GetTradingPage() {
     async (symbol: string) => {
       if (!confirm(`Close entire ${symbol} position at market?`)) return;
       try {
-        await closePosition(env, symbol);
-        notify('ok', `${symbol} close order submitted`);
+        // Working orders (SL/TP bracket children, unfilled limits, etc.)
+        // reserve the position qty under held_for_orders, which makes the
+        // close request fail with 40310000 "insufficient qty available".
+        // Cancel any open orders on this symbol first.
+        const openStatuses = new Set([
+          'new',
+          'pending_new',
+          'accepted',
+          'partially_filled',
+          'pending_replace',
+          'replaced',
+          'held',
+        ]);
+        const openOnSymbol = orders.filter(
+          (o) => o.symbol === symbol && openStatuses.has(o.status),
+        );
+        for (const o of openOnSymbol) {
+          try {
+            await cancelOrder(env, o.id);
+          } catch {
+            // best-effort: a stale/already-canceled order shouldn't block
+            // the close.
+          }
+        }
+        // Alpaca takes a beat to release the held_for_orders qty after a
+        // cancel transitions through pending_cancel → canceled. Retry the
+        // close itself with backoff instead of guessing a fixed sleep.
+        let closed: AlpacaOrder | null = null;
+        let lastErr: Error | null = null;
+        const attempts = openOnSymbol.length > 0 ? 6 : 1;
+        for (let i = 0; i < attempts; i++) {
+          try {
+            closed = await closePosition(env, symbol);
+            break;
+          } catch (e) {
+            lastErr = e as Error;
+            if (!/insufficient qty/i.test(lastErr.message) || i === attempts - 1) {
+              throw lastErr;
+            }
+            await new Promise((r) => setTimeout(r, 500 + i * 500));
+          }
+        }
+        if (!closed) throw lastErr ?? new Error('close failed');
+        notify(
+          'ok',
+          openOnSymbol.length > 0
+            ? `${symbol} close submitted (canceled ${openOnSymbol.length} open order${openOnSymbol.length === 1 ? '' : 's'} first)`
+            : `${symbol} close order submitted`,
+        );
         await refreshAccountState();
       } catch (e) {
         notify('err', (e as Error).message);
       }
     },
-    [env, notify, refreshAccountState],
+    [env, notify, orders, refreshAccountState],
   );
 
   const handleSetPositionSLTP = useCallback(

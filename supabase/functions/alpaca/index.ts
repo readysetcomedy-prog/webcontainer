@@ -84,7 +84,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const upstream = await fetch(targetUrl, init);
   const body = await upstream.text();
-  return new Response(body, {
+  // 204/205/304 must have a null body — passing "" throws TypeError in Deno's
+  // Response constructor, which surfaces as a generic 500 to the caller and
+  // hides that the upstream call actually succeeded (e.g. DELETE /orders/:id
+  // returns 204 on success).
+  const nullBodyStatus =
+    upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
+  return new Response(nullBodyStatus ? null : body, {
     status: upstream.status,
     headers: {
       ...CORS_HEADERS,
