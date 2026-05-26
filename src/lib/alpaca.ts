@@ -1,5 +1,15 @@
-// Typed client for the Alpaca proxy at /api/alpaca/*.
-// Keys never live in the browser — the Netlify Function injects them.
+// Typed client for the Supabase Edge Function alpaca proxy.
+// Keys never live in the browser — the function injects them server-side.
+// The user must be signed in (Supabase Edge Functions verify the JWT).
+
+import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
+
+// Allow overriding for `supabase functions serve` local dev:
+//   echo 'VITE_ALPACA_FUNCTION_URL=http://localhost:54321/functions/v1/alpaca' >> .env.local
+const FN_URL = (
+  (import.meta.env.VITE_ALPACA_FUNCTION_URL as string | undefined) ??
+  `${SUPABASE_URL}/functions/v1/alpaca`
+).replace(/\/$/, '');
 
 export type AlpacaEnv = 'paper' | 'live';
 
@@ -95,12 +105,19 @@ async function call<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) {
+    throw new Error('Sign in to access trading.');
+  }
   const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    apikey: SUPABASE_ANON_KEY,
     'x-alpaca-env': env,
     'x-alpaca-target': target,
   };
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(`/api/alpaca/${path}`, {
+  const res = await fetch(`${FN_URL}/${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

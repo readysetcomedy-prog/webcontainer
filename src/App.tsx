@@ -1611,6 +1611,10 @@ export default function App() {
     pathname === '/gettrading' || pathname.startsWith('/gettrading/');
 
   if (isGetTradingRoute) {
+    if (authChecking) {
+      return <div className="login-shell"><div className="login-card">Loading…</div></div>;
+    }
+    if (!session) return <LoginGate />;
     return <GetTradingPage />;
   }
 
