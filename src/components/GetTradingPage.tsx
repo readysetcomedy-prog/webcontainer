@@ -3,7 +3,7 @@ import {
   cancelOrder,
   closePosition,
   getAccount,
-  getDailyBars,
+  getBars,
   getSnapshots,
   listOrders,
   listPositions,
@@ -16,6 +16,7 @@ import type {
   AlpacaOrder,
   AlpacaPosition,
   AlpacaSnapshot,
+  AlpacaTimeframe,
   OrderSide,
   OrderType,
   TimeInForce,
@@ -25,6 +26,7 @@ import CandleChart from './CandleChart';
 const ENV_KEY = 'gettrading.env';
 const WATCHLIST_KEY = 'gettrading.watchlist';
 const CHART_SYMBOL_KEY = 'gettrading.chartSymbol';
+const CHART_RANGE_KEY = 'gettrading.chartRange';
 const COLLAPSED_KEY = 'gettrading.collapsed';
 
 const DEFAULT_WATCHLIST = [
@@ -40,9 +42,25 @@ const DEFAULT_WATCHLIST = [
   'JPM', 'GS',
   // Retail-favorite / meme
   'GME', 'AMC', 'SOFI', 'UBER',
+  // +20 most fluid US large-caps (highest dollar-volume)
+  'LLY', 'UNH', 'V', 'MA', 'HD', 'COST', 'WMT',
+  'XOM', 'CVX', 'BAC', 'WFC',
+  'DIS', 'ABBV', 'ORCL', 'CRM',
+  'INTC', 'MU', 'QCOM', 'SNOW', 'SHOP',
 ];
 
-const MAX_WATCHLIST = 50;
+const MAX_WATCHLIST = 75;
+
+type ChartRange = '1D' | '5D' | '1H';
+
+const RANGE_CONFIG: Record<
+  ChartRange,
+  { timeframe: AlpacaTimeframe; lookbackDays: number; intraday: boolean; label: string }
+> = {
+  '1D': { timeframe: '5Min', lookbackDays: 2, intraday: true, label: '1 day' },
+  '5D': { timeframe: '15Min', lookbackDays: 8, intraday: true, label: '5 days' },
+  '1H': { timeframe: '1Hour', lookbackDays: 30, intraday: true, label: '1 hour bars · 30 days' },
+};
 
 function readEnv(): AlpacaEnv {
   if (typeof window === 'undefined') return 'paper';
@@ -73,6 +91,12 @@ function readCollapsed(): Record<string, boolean> {
     // ignore
   }
   return {};
+}
+
+function readChartRange(): ChartRange {
+  if (typeof window === 'undefined') return '1D';
+  const v = localStorage.getItem(CHART_RANGE_KEY);
+  return v === '5D' || v === '1H' || v === '1D' ? v : '1D';
 }
 
 function fmtMoney(n: number | string | null | undefined, currency = 'USD') {
@@ -107,9 +131,10 @@ export default function GetTradingPage() {
   const [orders, setOrders] = useState<AlpacaOrder[]>([]);
   const [watchlist, setWatchlist] = useState<string[]>(readWatchlist);
   const [snapshots, setSnapshots] = useState<Record<string, AlpacaSnapshot>>({});
-  const [chartSymbol, setChartSymbol] = useState<string>(
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(
     () => localStorage.getItem(CHART_SYMBOL_KEY) ?? readWatchlist()[0] ?? 'AAPL',
   );
+  const [chartRange, setChartRange] = useState<ChartRange>(readChartRange);
   const [bars, setBars] = useState<AlpacaBar[]>([]);
   const [barsLoading, setBarsLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed);
@@ -126,8 +151,12 @@ export default function GetTradingPage() {
   }, [watchlist]);
 
   useEffect(() => {
-    localStorage.setItem(CHART_SYMBOL_KEY, chartSymbol);
-  }, [chartSymbol]);
+    localStorage.setItem(CHART_SYMBOL_KEY, selectedSymbol);
+  }, [selectedSymbol]);
+
+  useEffect(() => {
+    localStorage.setItem(CHART_RANGE_KEY, chartRange);
+  }, [chartRange]);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
@@ -155,7 +184,7 @@ export default function GetTradingPage() {
 
   const refreshSnapshots = useCallback(async () => {
     const symbols = Array.from(
-      new Set([...watchlist, ...positions.map((p) => p.symbol), chartSymbol]),
+      new Set([...watchlist, ...positions.map((p) => p.symbol), selectedSymbol]),
     ).filter(Boolean);
     if (symbols.length === 0) return;
     try {
@@ -164,13 +193,14 @@ export default function GetTradingPage() {
     } catch {
       // non-fatal: keep showing stale data
     }
-  }, [env, watchlist, positions, chartSymbol]);
+  }, [env, watchlist, positions, selectedSymbol]);
 
   const refreshBars = useCallback(async () => {
-    if (!chartSymbol) return;
+    if (!selectedSymbol) return;
     setBarsLoading(true);
     try {
-      const b = await getDailyBars(env, chartSymbol, 120);
+      const { timeframe, lookbackDays } = RANGE_CONFIG[chartRange];
+      const b = await getBars(env, selectedSymbol, timeframe, lookbackDays);
       setBars(b);
     } catch (e) {
       setError((e as Error).message);
@@ -178,7 +208,7 @@ export default function GetTradingPage() {
     } finally {
       setBarsLoading(false);
     }
-  }, [env, chartSymbol]);
+  }, [env, selectedSymbol, chartRange]);
 
   useEffect(() => {
     refreshAccountState();
@@ -248,7 +278,8 @@ export default function GetTradingPage() {
     [env, notify, refreshAccountState],
   );
 
-  const chartSnap = snapshots[chartSymbol];
+  const chartSnap = snapshots[selectedSymbol];
+  const rangeCfg = RANGE_CONFIG[chartRange];
 
   return (
     <div className="gt-shell">
@@ -323,6 +354,7 @@ export default function GetTradingPage() {
           <h2>Place order</h2>
           <OrderEntry
             busy={busy}
+            symbol={selectedSymbol}
             snapshots={snapshots}
             onSubmit={handlePlaceOrder}
           />
@@ -334,7 +366,7 @@ export default function GetTradingPage() {
             positions={positions}
             snapshots={snapshots}
             onClose={handleClosePosition}
-            onSelect={(sym) => setChartSymbol(sym)}
+            onSelect={setSelectedSymbol}
           />
         </section>
 
@@ -343,7 +375,7 @@ export default function GetTradingPage() {
           <Watchlist
             symbols={watchlist}
             snapshots={snapshots}
-            selected={chartSymbol}
+            selected={selectedSymbol}
             onAdd={(s) =>
               setWatchlist((prev) =>
                 prev.includes(s) ? prev : [...prev, s].slice(0, MAX_WATCHLIST),
@@ -352,7 +384,7 @@ export default function GetTradingPage() {
             onRemove={(s) =>
               setWatchlist((prev) => prev.filter((x) => x !== s))
             }
-            onSelect={(s) => setChartSymbol(s)}
+            onSelect={setSelectedSymbol}
           />
         </section>
       </div>
@@ -364,7 +396,7 @@ export default function GetTradingPage() {
         onToggle={() => toggleCollapsed('chart')}
         headerRight={
           <div className="gt-chart-meta">
-            <span className="gt-sym">{chartSymbol}</span>
+            <span className="gt-sym">{selectedSymbol}</span>
             {chartSnap && (
               <>
                 <span>{fmtMoney(chartSnap.last)}</span>
@@ -376,15 +408,32 @@ export default function GetTradingPage() {
                 </span>
               </>
             )}
+            <div className="gt-tf-toggle" role="group" aria-label="Timeframe">
+              {(['1D', '5D', '1H'] as ChartRange[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={chartRange === r ? 'active' : ''}
+                  onClick={() => setChartRange(r)}
+                  title={RANGE_CONFIG[r].label}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
           </div>
         }
       >
-        <CandleChart bars={bars} loading={barsLoading} />
+        <CandleChart
+          bars={bars}
+          loading={barsLoading}
+          intraday={rangeCfg.intraday}
+        />
         <SymbolStrip
           symbols={watchlist}
           snapshots={snapshots}
-          selected={chartSymbol}
-          onSelect={(s) => setChartSymbol(s)}
+          selected={selectedSymbol}
+          onSelect={setSelectedSymbol}
         />
       </CollapsiblePanel>
 
@@ -453,10 +502,12 @@ function AccountStat({
 
 function OrderEntry({
   busy,
+  symbol: externalSymbol,
   snapshots,
   onSubmit,
 }: {
   busy: boolean;
+  symbol: string;
   snapshots: Record<string, AlpacaSnapshot>;
   onSubmit: (input: {
     symbol: string;
@@ -467,12 +518,17 @@ function OrderEntry({
     limit_price?: number;
   }) => void;
 }) {
-  const [symbol, setSymbol] = useState('');
+  const [symbol, setSymbol] = useState(externalSymbol);
   const [side, setSide] = useState<OrderSide>('buy');
   const [type, setType] = useState<OrderType>('market');
   const [qty, setQty] = useState('1');
   const [limit, setLimit] = useState('');
   const [tif, setTif] = useState<TimeInForce>('day');
+
+  // Sync from parent (chip / watchlist row click). Keeps other fields intact.
+  useEffect(() => {
+    setSymbol(externalSymbol);
+  }, [externalSymbol]);
 
   const sym = symbol.trim().toUpperCase();
   const snap = snapshots[sym];

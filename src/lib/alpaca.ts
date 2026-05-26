@@ -293,12 +293,25 @@ export async function getSnapshots(env: AlpacaEnv, symbols: string[]) {
   return out;
 }
 
-export async function getDailyBars(env: AlpacaEnv, symbol: string, limit = 120) {
+export type AlpacaTimeframe =
+  | '1Min'
+  | '5Min'
+  | '15Min'
+  | '30Min'
+  | '1Hour'
+  | '1Day';
+
+export async function getBars(
+  env: AlpacaEnv,
+  symbol: string,
+  timeframe: AlpacaTimeframe,
+  lookbackDays: number,
+  limit = 10000,
+) {
   const sym = symbol.trim().toUpperCase();
   if (!sym) return [] as AlpacaBar[];
-  // Alpaca needs an explicit start date to return more than today's bar.
-  // Look back enough trading days to fill `limit` (use ~1.5x to cover weekends).
-  const lookbackDays = Math.ceil(limit * 1.5) + 7;
+  // Alpaca needs an explicit start date — without it the endpoint defaults to
+  // only today's bar regardless of `limit`.
   const start = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -306,10 +319,10 @@ export async function getDailyBars(env: AlpacaEnv, symbol: string, limit = 120) 
     env,
     'data',
     'GET',
-    `v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=1Day&limit=${limit}&start=${start}&adjustment=split`,
+    `v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${timeframe}&start=${start}&limit=${limit}&adjustment=split`,
   );
   return (res.bars ?? []).map<AlpacaBar>((b) => ({
-    time: b.t.slice(0, 10),
+    time: b.t,
     open: b.o,
     high: b.h,
     low: b.l,

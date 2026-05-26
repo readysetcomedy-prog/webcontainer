@@ -5,7 +5,7 @@ import {
   createChart,
   type IChartApi,
   type ISeriesApi,
-  type Time,
+  type UTCTimestamp,
 } from 'lightweight-charts';
 import type { AlpacaBar } from '../lib/alpaca';
 
@@ -13,9 +13,15 @@ interface Props {
   bars: AlpacaBar[];
   height?: number;
   loading?: boolean;
+  intraday?: boolean;
 }
 
-export default function CandleChart({ bars, height = 320, loading }: Props) {
+export default function CandleChart({
+  bars,
+  height = 320,
+  loading,
+  intraday = false,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -37,7 +43,8 @@ export default function CandleChart({ bars, height = 320, loading }: Props) {
       },
       timeScale: {
         borderColor: 'rgba(255,255,255,0.08)',
-        timeVisible: false,
+        timeVisible: intraday,
+        secondsVisible: false,
       },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
       crosshair: { mode: 1 },
@@ -66,19 +73,27 @@ export default function CandleChart({ bars, height = 320, loading }: Props) {
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [height]);
+  }, [height, intraday]);
 
   useEffect(() => {
     if (!seriesRef.current || !chartRef.current) return;
-    seriesRef.current.setData(
-      bars.map((b) => ({
-        time: b.time as Time,
+    // De-duplicate by timestamp and sort ascending — lightweight-charts crashes
+    // if it sees out-of-order or duplicate times.
+    const seen = new Map<number, AlpacaBar>();
+    for (const b of bars) {
+      const sec = Math.floor(new Date(b.time).getTime() / 1000);
+      if (Number.isFinite(sec)) seen.set(sec, b);
+    }
+    const data = Array.from(seen.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([sec, b]) => ({
+        time: sec as UTCTimestamp,
         open: b.open,
         high: b.high,
         low: b.low,
         close: b.close,
-      })),
-    );
+      }));
+    seriesRef.current.setData(data);
     chartRef.current.timeScale().fitContent();
   }, [bars]);
 

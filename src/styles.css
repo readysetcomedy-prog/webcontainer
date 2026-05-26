@@ -273,6 +273,30 @@ html, body, #root {
   align-items: center;
   gap: 10px;
   font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+
+.gt-tf-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-left: 8px;
+}
+
+.gt-tf-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gt-tf-toggle button.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
 }
 
 .gt-chart-meta .gt-sym {
