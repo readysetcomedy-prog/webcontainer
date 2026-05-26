@@ -9,6 +9,7 @@ import CodeEditor from './components/CodeEditor';
 import Preview from './components/Preview';
 import Terminal from './components/Terminal';
 import ProjectsSection from './components/ProjectsSection';
+import GetTradingPage from './components/GetTradingPage';
 import type { FileEntry, LogLine } from './types';
 import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
 import type { GhUser } from './lib/github';
@@ -1602,10 +1603,16 @@ export default function App() {
     [activeProject, log],
   );
 
+  const pathname =
+    typeof window !== 'undefined' ? window.location.pathname : '/';
   const isAppRoute =
-    typeof window !== 'undefined' &&
-    (window.location.pathname === '/app' ||
-      window.location.pathname.startsWith('/app/'));
+    pathname === '/app' || pathname.startsWith('/app/');
+  const isGetTradingRoute =
+    pathname === '/gettrading' || pathname.startsWith('/gettrading/');
+
+  if (isGetTradingRoute) {
+    return <GetTradingPage />;
+  }
 
   if (!isAppRoute) {
     return <LandingPage />;

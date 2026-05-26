@@ -126,6 +126,9 @@ export default function Toolbar({
           </span>
         )}
       </div>
+      <a className="toolbar-link" href="/gettrading">
+        GetTrading
+      </a>
       {activeProject && (
         <div
           className="toolbar-active-project"

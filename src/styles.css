@@ -58,10 +58,76 @@ html, body, #root {
   border-radius: 10px;
 }
 
+.toolbar-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-dim);
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.toolbar-link:hover {
+  color: var(--fg);
+  background: var(--bg-3, rgba(255, 255, 255, 0.05));
+}
+
 .toolbar-actions {
   display: flex;
   gap: 8px;
   margin-left: auto;
+}
+
+.gettrading-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 24px;
+}
+
+.gettrading-card {
+  max-width: 520px;
+  text-align: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 40px 32px;
+}
+
+.gettrading-card h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.gettrading-tagline {
+  margin: 0 0 16px;
+  color: var(--fg-dim);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.gettrading-body {
+  margin: 0 0 24px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.gettrading-back {
+  display: inline-block;
+  color: var(--fg);
+  text-decoration: none;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.gettrading-back:hover {
+  background: var(--bg-3, rgba(255, 255, 255, 0.05));
 }
 
 .search-panel {
