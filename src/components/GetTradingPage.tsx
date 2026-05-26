@@ -3,27 +3,46 @@ import {
   cancelOrder,
   closePosition,
   getAccount,
-  getLatestQuotes,
-  getLatestTrades,
+  getDailyBars,
+  getSnapshots,
   listOrders,
   listPositions,
   placeOrder,
 } from '../lib/alpaca';
 import type {
   AlpacaAccount,
+  AlpacaBar,
   AlpacaEnv,
   AlpacaOrder,
   AlpacaPosition,
-  LatestQuote,
-  LatestTrade,
+  AlpacaSnapshot,
   OrderSide,
   OrderType,
   TimeInForce,
 } from '../lib/alpaca';
+import CandleChart from './CandleChart';
 
 const ENV_KEY = 'gettrading.env';
 const WATCHLIST_KEY = 'gettrading.watchlist';
-const DEFAULT_WATCHLIST = ['AAPL', 'MSFT', 'NVDA', 'SPY', 'TSLA'];
+const CHART_SYMBOL_KEY = 'gettrading.chartSymbol';
+const COLLAPSED_KEY = 'gettrading.collapsed';
+
+const DEFAULT_WATCHLIST = [
+  // Mega-cap tech
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA',
+  // Momentum / high-volume movers
+  'AMD', 'AVGO', 'NFLX', 'COIN', 'MSTR', 'PLTR', 'SMCI',
+  // Indices / ETFs
+  'SPY', 'QQQ', 'IWM',
+  // Leveraged ETFs (high movement)
+  'TQQQ', 'SQQQ',
+  // Banks & misc movers
+  'JPM', 'GS',
+  // Retail-favorite / meme
+  'GME', 'AMC', 'SOFI', 'UBER',
+];
+
+const MAX_WATCHLIST = 50;
 
 function readEnv(): AlpacaEnv {
   if (typeof window === 'undefined') return 'paper';
@@ -36,11 +55,24 @@ function readWatchlist(): string[] {
     const raw = localStorage.getItem(WATCHLIST_KEY);
     if (!raw) return DEFAULT_WATCHLIST;
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.map((s) => String(s).toUpperCase());
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((s) => String(s).toUpperCase());
+    }
   } catch {
     // ignore
   }
   return DEFAULT_WATCHLIST;
+}
+
+function readCollapsed(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    // ignore
+  }
+  return {};
 }
 
 function fmtMoney(n: number | string | null | undefined, currency = 'USD') {
@@ -74,8 +106,13 @@ export default function GetTradingPage() {
   const [positions, setPositions] = useState<AlpacaPosition[]>([]);
   const [orders, setOrders] = useState<AlpacaOrder[]>([]);
   const [watchlist, setWatchlist] = useState<string[]>(readWatchlist);
-  const [quotes, setQuotes] = useState<Record<string, LatestQuote>>({});
-  const [trades, setTrades] = useState<Record<string, LatestTrade>>({});
+  const [snapshots, setSnapshots] = useState<Record<string, AlpacaSnapshot>>({});
+  const [chartSymbol, setChartSymbol] = useState<string>(
+    () => localStorage.getItem(CHART_SYMBOL_KEY) ?? readWatchlist()[0] ?? 'AAPL',
+  );
+  const [bars, setBars] = useState<AlpacaBar[]>([]);
+  const [barsLoading, setBarsLoading] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
@@ -87,6 +124,18 @@ export default function GetTradingPage() {
   useEffect(() => {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
   }, [watchlist]);
+
+  useEffect(() => {
+    localStorage.setItem(CHART_SYMBOL_KEY, chartSymbol);
+  }, [chartSymbol]);
+
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
+  }, [collapsed]);
+
+  const toggleCollapsed = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const refreshAccountState = useCallback(async () => {
     try {
@@ -104,22 +153,32 @@ export default function GetTradingPage() {
     }
   }, [env]);
 
-  const refreshQuotes = useCallback(async () => {
+  const refreshSnapshots = useCallback(async () => {
     const symbols = Array.from(
-      new Set([...watchlist, ...positions.map((p) => p.symbol)]),
+      new Set([...watchlist, ...positions.map((p) => p.symbol), chartSymbol]),
     ).filter(Boolean);
     if (symbols.length === 0) return;
     try {
-      const [q, t] = await Promise.all([
-        getLatestQuotes(env, symbols),
-        getLatestTrades(env, symbols),
-      ]);
-      setQuotes(q);
-      setTrades(t);
+      const snaps = await getSnapshots(env, symbols);
+      setSnapshots(snaps);
     } catch {
-      // Quote feed errors aren't fatal — show stale data quietly.
+      // non-fatal: keep showing stale data
     }
-  }, [env, watchlist, positions]);
+  }, [env, watchlist, positions, chartSymbol]);
+
+  const refreshBars = useCallback(async () => {
+    if (!chartSymbol) return;
+    setBarsLoading(true);
+    try {
+      const b = await getDailyBars(env, chartSymbol, 120);
+      setBars(b);
+    } catch (e) {
+      setError((e as Error).message);
+      setBars([]);
+    } finally {
+      setBarsLoading(false);
+    }
+  }, [env, chartSymbol]);
 
   useEffect(() => {
     refreshAccountState();
@@ -128,10 +187,14 @@ export default function GetTradingPage() {
   }, [refreshAccountState]);
 
   useEffect(() => {
-    refreshQuotes();
-    const id = setInterval(refreshQuotes, 5_000);
+    refreshSnapshots();
+    const id = setInterval(refreshSnapshots, 6_000);
     return () => clearInterval(id);
-  }, [refreshQuotes]);
+  }, [refreshSnapshots]);
+
+  useEffect(() => {
+    refreshBars();
+  }, [refreshBars]);
 
   const notify = useCallback((kind: 'ok' | 'err', msg: string) => {
     setToast({ kind, msg });
@@ -148,14 +211,14 @@ export default function GetTradingPage() {
           `${o.side.toUpperCase()} ${o.qty ?? ''} ${o.symbol} submitted (${o.status})`,
         );
         await refreshAccountState();
-        await refreshQuotes();
+        await refreshSnapshots();
       } catch (e) {
         notify('err', (e as Error).message);
       } finally {
         setBusy(false);
       }
     },
-    [env, notify, refreshAccountState, refreshQuotes],
+    [env, notify, refreshAccountState, refreshSnapshots],
   );
 
   const handleCancelOrder = useCallback(
@@ -185,6 +248,8 @@ export default function GetTradingPage() {
     [env, notify, refreshAccountState],
   );
 
+  const chartSnap = snapshots[chartSymbol];
+
   return (
     <div className="gt-shell">
       <header className="gt-header">
@@ -204,7 +269,7 @@ export default function GetTradingPage() {
             onClick={() => {
               if (
                 confirm(
-                  'Switch to LIVE trading? Real money, real orders. Make sure your live keys are set in Netlify env.',
+                  'Switch to LIVE trading? Real money, real orders. Make sure your live keys are set in Supabase.',
                 )
               ) {
                 setEnv('live');
@@ -256,16 +321,20 @@ export default function GetTradingPage() {
       <div className="gt-grid">
         <section className="gt-panel">
           <h2>Place order</h2>
-          <OrderEntry busy={busy} quotes={quotes} onSubmit={handlePlaceOrder} />
+          <OrderEntry
+            busy={busy}
+            snapshots={snapshots}
+            onSubmit={handlePlaceOrder}
+          />
         </section>
 
         <section className="gt-panel">
           <h2>Positions</h2>
           <PositionsTable
             positions={positions}
-            quotes={quotes}
-            trades={trades}
+            snapshots={snapshots}
             onClose={handleClosePosition}
+            onSelect={(sym) => setChartSymbol(sym)}
           />
         </section>
 
@@ -273,25 +342,95 @@ export default function GetTradingPage() {
           <h2>Watchlist</h2>
           <Watchlist
             symbols={watchlist}
-            quotes={quotes}
-            trades={trades}
+            snapshots={snapshots}
+            selected={chartSymbol}
             onAdd={(s) =>
               setWatchlist((prev) =>
-                prev.includes(s) ? prev : [...prev, s].slice(0, 25),
+                prev.includes(s) ? prev : [...prev, s].slice(0, MAX_WATCHLIST),
               )
             }
             onRemove={(s) =>
               setWatchlist((prev) => prev.filter((x) => x !== s))
             }
+            onSelect={(s) => setChartSymbol(s)}
           />
         </section>
-
-        <section className="gt-panel gt-panel-wide">
-          <h2>Orders (recent 50)</h2>
-          <OrdersTable orders={orders} onCancel={handleCancelOrder} />
-        </section>
       </div>
+
+      <CollapsiblePanel
+        wide
+        title="Chart"
+        collapsed={!!collapsed.chart}
+        onToggle={() => toggleCollapsed('chart')}
+        headerRight={
+          <div className="gt-chart-meta">
+            <span className="gt-sym">{chartSymbol}</span>
+            {chartSnap && (
+              <>
+                <span>{fmtMoney(chartSnap.last)}</span>
+                <span
+                  className={chartSnap.change >= 0 ? 'pos' : 'neg'}
+                >
+                  {chartSnap.change >= 0 ? '+' : ''}
+                  {fmtNum(chartSnap.change)} ({fmtPct(chartSnap.changePct)})
+                </span>
+              </>
+            )}
+          </div>
+        }
+      >
+        <CandleChart bars={bars} loading={barsLoading} />
+        <SymbolStrip
+          symbols={watchlist}
+          snapshots={snapshots}
+          selected={chartSymbol}
+          onSelect={(s) => setChartSymbol(s)}
+        />
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        wide
+        title="Orders (recent 50)"
+        collapsed={!!collapsed.orders}
+        onToggle={() => toggleCollapsed('orders')}
+      >
+        <OrdersTable orders={orders} onCancel={handleCancelOrder} />
+      </CollapsiblePanel>
     </div>
+  );
+}
+
+function CollapsiblePanel({
+  title,
+  collapsed,
+  onToggle,
+  wide,
+  headerRight,
+  children,
+}: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  wide?: boolean;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`gt-panel ${wide ? 'gt-panel-wide' : ''}`}>
+      <header className="gt-panel-header">
+        <button
+          type="button"
+          className="gt-collapse-toggle"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+        >
+          <span className={`gt-caret ${collapsed ? 'collapsed' : ''}`}>▾</span>
+          <h2>{title}</h2>
+        </button>
+        {headerRight && <div className="gt-panel-right">{headerRight}</div>}
+      </header>
+      {!collapsed && <div className="gt-panel-body">{children}</div>}
+    </section>
   );
 }
 
@@ -314,11 +453,11 @@ function AccountStat({
 
 function OrderEntry({
   busy,
-  quotes,
+  snapshots,
   onSubmit,
 }: {
   busy: boolean;
-  quotes: Record<string, LatestQuote>;
+  snapshots: Record<string, AlpacaSnapshot>;
   onSubmit: (input: {
     symbol: string;
     qty?: number;
@@ -336,7 +475,7 @@ function OrderEntry({
   const [tif, setTif] = useState<TimeInForce>('day');
 
   const sym = symbol.trim().toUpperCase();
-  const q = quotes[sym];
+  const snap = snapshots[sym];
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -369,9 +508,12 @@ function OrderEntry({
           spellCheck={false}
         />
       </label>
-      {q && (
+      {snap && (
         <div className="gt-quote-hint">
-          Bid {fmtMoney(q.bidPrice)} · Ask {fmtMoney(q.askPrice)}
+          Bid {fmtMoney(snap.bid)} · Ask {fmtMoney(snap.ask)} ·{' '}
+          <span className={snap.change >= 0 ? 'pos' : 'neg'}>
+            {fmtPct(snap.changePct)}
+          </span>
         </div>
       )}
       <div className="gt-side-toggle" role="group">
@@ -443,14 +585,14 @@ function OrderEntry({
 
 function PositionsTable({
   positions,
-  quotes,
-  trades,
+  snapshots,
   onClose,
+  onSelect,
 }: {
   positions: AlpacaPosition[];
-  quotes: Record<string, LatestQuote>;
-  trades: Record<string, LatestTrade>;
+  snapshots: Record<string, AlpacaSnapshot>;
   onClose: (symbol: string) => void;
+  onSelect: (symbol: string) => void;
 }) {
   if (positions.length === 0) {
     return <div className="gt-empty">No open positions.</div>;
@@ -472,14 +614,18 @@ function PositionsTable({
         <tbody>
           {positions.map((p) => {
             const lastPrice =
-              trades[p.symbol]?.price ??
-              (quotes[p.symbol]
-                ? (quotes[p.symbol].bidPrice + quotes[p.symbol].askPrice) / 2
-                : parseFloat(p.current_price));
+              snapshots[p.symbol]?.last ?? parseFloat(p.current_price);
             const pl = parseFloat(p.unrealized_pl);
             return (
               <tr key={p.asset_id}>
-                <td className="gt-sym">{p.symbol}</td>
+                <td>
+                  <button
+                    className="gt-sym gt-link"
+                    onClick={() => onSelect(p.symbol)}
+                  >
+                    {p.symbol}
+                  </button>
+                </td>
                 <td>{fmtNum(p.qty, 0)}</td>
                 <td>{fmtMoney(p.avg_entry_price)}</td>
                 <td>{fmtMoney(lastPrice)}</td>
@@ -532,9 +678,12 @@ function OrdersTable({
         </thead>
         <tbody>
           {orders.map((o) => {
-            const cancellable = ['new', 'accepted', 'pending_new', 'partially_filled'].includes(
-              o.status,
-            );
+            const cancellable = [
+              'new',
+              'accepted',
+              'pending_new',
+              'partially_filled',
+            ].includes(o.status);
             return (
               <tr key={o.id}>
                 <td>{new Date(o.submitted_at).toLocaleString()}</td>
@@ -568,16 +717,18 @@ function OrdersTable({
 
 function Watchlist({
   symbols,
-  quotes,
-  trades,
+  snapshots,
+  selected,
   onAdd,
   onRemove,
+  onSelect,
 }: {
   symbols: string[];
-  quotes: Record<string, LatestQuote>;
-  trades: Record<string, LatestTrade>;
+  snapshots: Record<string, AlpacaSnapshot>;
+  selected: string;
   onAdd: (s: string) => void;
   onRemove: (s: string) => void;
+  onSelect: (s: string) => void;
 }) {
   const [input, setInput] = useState('');
   const lastPrices = useRef<Record<string, number>>({});
@@ -585,24 +736,19 @@ function Watchlist({
   const rows = useMemo(
     () =>
       symbols.map((s) => {
-        const last =
-          trades[s]?.price ??
-          (quotes[s]
-            ? (quotes[s].bidPrice + quotes[s].askPrice) / 2
-            : undefined);
+        const snap = snapshots[s];
+        const last = snap?.last;
         const prev = lastPrices.current[s];
-        if (last !== undefined) lastPrices.current[s] = last;
-        const dir =
-          last !== undefined && prev !== undefined
+        if (last !== undefined && last > 0) lastPrices.current[s] = last;
+        const tickDir =
+          last !== undefined && prev !== undefined && last !== prev
             ? last > prev
               ? 'up'
-              : last < prev
-              ? 'down'
-              : 'flat'
+              : 'down'
             : 'flat';
-        return { symbol: s, last, dir };
+        return { symbol: s, snap, last, tickDir };
       }),
-    [symbols, quotes, trades],
+    [symbols, snapshots],
   );
 
   return (
@@ -626,29 +772,84 @@ function Watchlist({
         />
         <button type="submit">Add</button>
       </form>
-      <div className="gt-table-wrap">
+      <div className="gt-table-wrap gt-watch-scroll">
         <table className="gt-table">
           <thead>
             <tr>
               <th>Symbol</th>
               <th>Last</th>
+              <th>%</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.symbol}>
-                <td className="gt-sym">{r.symbol}</td>
-                <td className={`gt-${r.dir}`}>{fmtMoney(r.last)}</td>
+              <tr
+                key={r.symbol}
+                className={selected === r.symbol ? 'gt-row-selected' : ''}
+              >
+                <td>
+                  <button
+                    className="gt-sym gt-link"
+                    onClick={() => onSelect(r.symbol)}
+                  >
+                    {r.symbol}
+                  </button>
+                </td>
+                <td className={`gt-${r.tickDir}`}>{fmtMoney(r.last)}</td>
+                <td
+                  className={
+                    r.snap && r.snap.change >= 0 ? 'pos' : r.snap ? 'neg' : ''
+                  }
+                >
+                  {r.snap ? fmtPct(r.snap.changePct) : '—'}
+                </td>
                 <td>
                   <button className="gt-link" onClick={() => onRemove(r.symbol)}>
-                    Remove
+                    ×
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function SymbolStrip({
+  symbols,
+  snapshots,
+  selected,
+  onSelect,
+}: {
+  symbols: string[];
+  snapshots: Record<string, AlpacaSnapshot>;
+  selected: string;
+  onSelect: (s: string) => void;
+}) {
+  return (
+    <div className="gt-strip-wrap">
+      <div className="gt-strip">
+        {symbols.map((s) => {
+          const snap = snapshots[s];
+          const pct = snap?.changePct;
+          const dir = pct === undefined ? 'flat' : pct >= 0 ? 'pos' : 'neg';
+          return (
+            <button
+              key={s}
+              type="button"
+              className={`gt-chip ${selected === s ? 'active' : ''} ${dir}`}
+              onClick={() => onSelect(s)}
+            >
+              <span className="gt-chip-sym">{s}</span>
+              <span className="gt-chip-pct">
+                {pct === undefined ? '—' : fmtPct(pct)}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

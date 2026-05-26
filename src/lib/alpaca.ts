@@ -98,6 +98,28 @@ export interface LatestTrade {
   timestamp: string;
 }
 
+export interface AlpacaSnapshot {
+  symbol: string;
+  last: number;
+  bid: number;
+  ask: number;
+  prevClose: number;
+  change: number;
+  changePct: number;
+  volume: number;
+  high: number;
+  low: number;
+}
+
+export interface AlpacaBar {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 async function call<T>(
   env: AlpacaEnv,
   target: 'trading' | 'data',
@@ -219,4 +241,79 @@ interface RawTrade {
   p: number;
   s: number;
   t: string;
+}
+
+interface RawBar {
+  t: string;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+}
+
+interface RawSnapshot {
+  latestTrade?: RawTrade;
+  latestQuote?: RawQuote;
+  dailyBar?: RawBar;
+  prevDailyBar?: RawBar;
+  minuteBar?: RawBar;
+}
+
+export async function getSnapshots(env: AlpacaEnv, symbols: string[]) {
+  if (symbols.length === 0) return {} as Record<string, AlpacaSnapshot>;
+  const list = symbols
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+    .join(',');
+  const res = await call<Record<string, RawSnapshot>>(
+    env,
+    'data',
+    'GET',
+    `v2/stocks/snapshots?symbols=${encodeURIComponent(list)}&feed=iex`,
+  );
+  const out: Record<string, AlpacaSnapshot> = {};
+  for (const [sym, snap] of Object.entries(res)) {
+    const last = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
+    const prevClose = snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? last;
+    const change = last - prevClose;
+    out[sym] = {
+      symbol: sym,
+      last,
+      bid: snap.latestQuote?.bp ?? 0,
+      ask: snap.latestQuote?.ap ?? 0,
+      prevClose,
+      change,
+      changePct: prevClose ? change / prevClose : 0,
+      volume: snap.dailyBar?.v ?? 0,
+      high: snap.dailyBar?.h ?? last,
+      low: snap.dailyBar?.l ?? last,
+    };
+  }
+  return out;
+}
+
+export async function getDailyBars(env: AlpacaEnv, symbol: string, limit = 120) {
+  const sym = symbol.trim().toUpperCase();
+  if (!sym) return [] as AlpacaBar[];
+  // Alpaca needs an explicit start date to return more than today's bar.
+  // Look back enough trading days to fill `limit` (use ~1.5x to cover weekends).
+  const lookbackDays = Math.ceil(limit * 1.5) + 7;
+  const start = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const res = await call<{ bars: RawBar[] | null }>(
+    env,
+    'data',
+    'GET',
+    `v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=1Day&limit=${limit}&start=${start}&adjustment=split`,
+  );
+  return (res.bars ?? []).map<AlpacaBar>((b) => ({
+    time: b.t.slice(0, 10),
+    open: b.o,
+    high: b.h,
+    low: b.l,
+    close: b.c,
+    volume: b.v,
+  }));
 }
