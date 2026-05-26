@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const crossOriginIsolation = {
@@ -101,13 +101,25 @@ const alpacaProxyDev = {
   },
 };
 
-export default defineConfig({
-  plugins: [react(), crossOriginIsolation, alpacaProxyDev],
-  server: {
-    host: true,
-    port: 5173,
-  },
-  optimizeDeps: {
-    exclude: ['@webcontainer/api'],
-  },
+export default defineConfig(({ mode }) => {
+  // Vite only exposes VITE_* to client code via import.meta.env; server-side
+  // middleware uses process.env, which Vite does NOT auto-populate from
+  // .env files. Pull ALPACA_* into process.env explicitly so the dev proxy
+  // can read the same .env.local that production uses (via Netlify env vars).
+  const env = loadEnv(mode, process.cwd(), '');
+  for (const k of Object.keys(env)) {
+    if (k.startsWith('ALPACA_') && !process.env[k]) {
+      process.env[k] = env[k];
+    }
+  }
+  return {
+    plugins: [react(), crossOriginIsolation, alpacaProxyDev],
+    server: {
+      host: true,
+      port: 5173,
+    },
+    optimizeDeps: {
+      exclude: ['@webcontainer/api'],
+    },
+  };
 });
