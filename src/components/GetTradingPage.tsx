@@ -25,6 +25,10 @@ import CandleChart from './CandleChart';
 
 const ENV_KEY = 'gettrading.env';
 const WATCHLIST_KEY = 'gettrading.watchlist';
+const WATCHLIST_VERSION_KEY = 'gettrading.watchlistDefaultsVersion';
+// Bump this whenever DEFAULT_WATCHLIST gets new symbols so existing users
+// get the additions merged in on next load.
+const WATCHLIST_DEFAULTS_VERSION = '2';
 const CHART_SYMBOL_KEY = 'gettrading.chartSymbol';
 const CHART_RANGE_KEY = 'gettrading.chartRange';
 const COLLAPSED_KEY = 'gettrading.collapsed';
@@ -69,17 +73,38 @@ function readEnv(): AlpacaEnv {
 
 function readWatchlist(): string[] {
   if (typeof window === 'undefined') return DEFAULT_WATCHLIST;
+  let stored: string[] | null = null;
   try {
     const raw = localStorage.getItem(WATCHLIST_KEY);
-    if (!raw) return DEFAULT_WATCHLIST;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map((s) => String(s).toUpperCase());
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        stored = parsed.map((s) => String(s).toUpperCase());
+      }
     }
   } catch {
     // ignore
   }
-  return DEFAULT_WATCHLIST;
+  const storedVersion = localStorage.getItem(WATCHLIST_VERSION_KEY);
+
+  // Fresh install: take the defaults wholesale.
+  if (!stored) {
+    localStorage.setItem(WATCHLIST_VERSION_KEY, WATCHLIST_DEFAULTS_VERSION);
+    return DEFAULT_WATCHLIST;
+  }
+
+  // Existing user on an older defaults version: merge new defaults in
+  // (preserving any symbols they added themselves).
+  if (storedVersion !== WATCHLIST_DEFAULTS_VERSION) {
+    const merged = [...stored];
+    for (const sym of DEFAULT_WATCHLIST) {
+      if (!merged.includes(sym)) merged.push(sym);
+    }
+    localStorage.setItem(WATCHLIST_VERSION_KEY, WATCHLIST_DEFAULTS_VERSION);
+    return merged;
+  }
+
+  return stored.length > 0 ? stored : DEFAULT_WATCHLIST;
 }
 
 function readCollapsed(): Record<string, boolean> {
@@ -371,7 +396,21 @@ export default function GetTradingPage() {
         </section>
 
         <section className="gt-panel">
-          <h2>Watchlist</h2>
+          <header className="gt-panel-header">
+            <h2 style={{ margin: 0 }}>Watchlist</h2>
+            <button
+              type="button"
+              className="gt-link"
+              onClick={() => {
+                if (confirm('Reset watchlist to the default 45 symbols?')) {
+                  setWatchlist(DEFAULT_WATCHLIST);
+                }
+              }}
+              title="Restore the default watchlist"
+            >
+              Reset
+            </button>
+          </header>
           <Watchlist
             symbols={watchlist}
             snapshots={snapshots}
