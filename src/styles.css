@@ -577,6 +577,17 @@ html, body, #root {
   padding-top: 4px;
 }
 
+.gt-warn {
+  font-size: 12px;
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  padding: 8px 10px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
 .gt-bracket.disabled {
   opacity: 0.55;
 }

@@ -398,7 +398,9 @@ export default function GetTradingPage() {
 
   const notify = useCallback((kind: 'ok' | 'err', msg: string) => {
     setToast({ kind, msg });
-    setTimeout(() => setToast(null), 4000);
+    // Errors stick around longer so brief failures (e.g. "fractional
+    // orders cannot be sold short") aren't missed.
+    setTimeout(() => setToast(null), kind === 'err' ? 8000 : 4000);
   }, []);
 
   const enableNotifications = useCallback(async () => {
@@ -585,6 +587,7 @@ export default function GetTradingPage() {
             busy={busy}
             symbol={selectedSymbol}
             snapshots={snapshots}
+            positions={positions}
             defaultSlPct={defaultSlPct}
             defaultTpPct={defaultTpPct}
             onChangeDefaultSlPct={setDefaultSlPct}
@@ -829,6 +832,7 @@ function OrderEntry({
   busy,
   symbol: externalSymbol,
   snapshots,
+  positions,
   defaultSlPct,
   defaultTpPct,
   onChangeDefaultSlPct,
@@ -838,6 +842,7 @@ function OrderEntry({
   busy: boolean;
   symbol: string;
   snapshots: Record<string, AlpacaSnapshot>;
+  positions: AlpacaPosition[];
   defaultSlPct: number;
   defaultTpPct: number;
   onChangeDefaultSlPct: (n: number) => void;
@@ -951,6 +956,31 @@ function OrderEntry({
     Number.isFinite(sl) && snap?.last ? ((sl - snap.last) / snap.last) * 100 : null;
   const tpPctActual =
     Number.isFinite(tp) && snap?.last ? ((tp - snap.last) / snap.last) * 100 : null;
+
+  // Alpaca rejects fractional shorts entirely ("fractional orders cannot be
+  // sold short", code 42210000). A fractional sell only succeeds if it's
+  // closing/reducing an existing long position of at least the requested size.
+  // Detect the invalid case here so the user gets a clear inline reason
+  // instead of a flash of red toast after submit.
+  const heldLongQty = (() => {
+    if (!sym) return 0;
+    const p = positions.find((x) => x.symbol === sym);
+    if (!p || p.side !== 'long') return 0;
+    const n = parseFloat(p.qty);
+    return Number.isFinite(n) ? n : 0;
+  })();
+  const intendedShares =
+    qtyMode === 'shares'
+      ? qtyNum
+      : snap?.last && Number.isFinite(qtyNum)
+      ? qtyNum / snap.last
+      : null;
+  const fractionalShortBlocked =
+    side === 'sell' &&
+    isFractional &&
+    intendedShares !== null &&
+    Number.isFinite(intendedShares) &&
+    intendedShares > heldLongQty + 1e-9;
 
   return (
     <form className="gt-order-form" onSubmit={submit}>
@@ -1145,10 +1175,18 @@ function OrderEntry({
           </button>
         </div>
       </div>
+      {fractionalShortBlocked && (
+        <div className="gt-warn">
+          Alpaca doesn't allow fractional shorts. To sell {sym}:
+          {heldLongQty > 0
+            ? ` you hold ${heldLongQty} share${heldLongQty === 1 ? '' : 's'} — sell at most that, or switch to whole shares to open a short.`
+            : ` you don't have a position, so switch to whole shares (1+) to open a short.`}
+        </div>
+      )}
       <button
         type="submit"
         className={`gt-submit ${side}`}
-        disabled={busy || !sym}
+        disabled={busy || !sym || fractionalShortBlocked}
       >
         {busy ? 'Submitting…' : `${side === 'buy' ? 'Buy' : 'Sell'} ${sym || ''}`}
       </button>
