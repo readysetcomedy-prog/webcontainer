@@ -454,6 +454,56 @@ html, body, #root {
   color: #fff;
 }
 
+.gt-qty-row {
+  display: flex;
+  gap: 4px;
+}
+
+.gt-qty-row input {
+  flex: 1;
+}
+
+.gt-qty-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gt-qty-mode button {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gt-qty-mode button.active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+}
+
+.gt-est {
+  font-style: normal;
+  color: var(--fg-dim);
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.gt-note {
+  font-size: 11px;
+  color: var(--fg-dim);
+  line-height: 1.4;
+  padding-top: 4px;
+}
+
+.gt-bracket.disabled {
+  opacity: 0.55;
+}
+
 .gt-bracket {
   display: flex;
   flex-direction: column;

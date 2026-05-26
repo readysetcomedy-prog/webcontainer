@@ -632,7 +632,8 @@ function OrderEntry({
   const [symbol, setSymbol] = useState(externalSymbol);
   const [side, setSide] = useState<OrderSide>('buy');
   const [type, setType] = useState<OrderType>('market');
-  const [qty, setQty] = useState('1');
+  const [qtyMode, setQtyMode] = useState<'shares' | 'dollars'>('shares');
+  const [qty, setQty] = useState('0.1');
   const [limit, setLimit] = useState('');
   const [tif, setTif] = useState<TimeInForce>('day');
   const [stopPrice, setStopPrice] = useState('');
@@ -679,32 +680,55 @@ function OrderEntry({
     const tp = parseFloat(takePrice);
     const hasSL = Number.isFinite(sl) && sl > 0;
     const hasTP = Number.isFinite(tp) && tp > 0;
-    // Brackets/OTO require day or gtc TIF on the parent.
-    const effectiveTif: TimeInForce =
-      hasSL || hasTP ? (tif === 'day' || tif === 'gtc' ? tif : 'day') : tif;
+    // Fractional / notional orders on Alpaca require day TIF and don't support
+    // bracket/OTO/OCO. Detect and silently downgrade so we don't get a 422.
+    const isFractional =
+      qtyMode === 'dollars' || qtyNum !== Math.floor(qtyNum);
+    const effectiveTif: TimeInForce = isFractional
+      ? 'day'
+      : hasSL || hasTP
+      ? tif === 'day' || tif === 'gtc'
+        ? tif
+        : 'day'
+      : tif;
     const payload: import('../lib/alpaca').PlaceOrderInput = {
       symbol: sym,
-      qty: qtyNum,
       side,
       type,
       time_in_force: effectiveTif,
+      ...(qtyMode === 'dollars' ? { notional: qtyNum } : { qty: qtyNum }),
       ...(type === 'limit' || type === 'stop_limit'
         ? { limit_price: parseFloat(limit) }
         : {}),
     };
-    if (hasSL && hasTP) {
-      payload.order_class = 'bracket';
-      payload.stop_loss = { stop_price: sl };
-      payload.take_profit = { limit_price: tp };
-    } else if (hasSL) {
-      payload.order_class = 'oto';
-      payload.stop_loss = { stop_price: sl };
-    } else if (hasTP) {
-      payload.order_class = 'oto';
-      payload.take_profit = { limit_price: tp };
+    if (!isFractional) {
+      if (hasSL && hasTP) {
+        payload.order_class = 'bracket';
+        payload.stop_loss = { stop_price: sl };
+        payload.take_profit = { limit_price: tp };
+      } else if (hasSL) {
+        payload.order_class = 'oto';
+        payload.stop_loss = { stop_price: sl };
+      } else if (hasTP) {
+        payload.order_class = 'oto';
+        payload.take_profit = { limit_price: tp };
+      }
     }
     onSubmit(payload);
   }
+
+  const qtyNum = parseFloat(qty);
+  const isFractional =
+    qtyMode === 'dollars' ||
+    (Number.isFinite(qtyNum) && qtyNum > 0 && qtyNum !== Math.floor(qtyNum));
+  const estDollars =
+    qtyMode === 'shares' && snap?.last && Number.isFinite(qtyNum)
+      ? qtyNum * snap.last
+      : null;
+  const estShares =
+    qtyMode === 'dollars' && snap?.last && Number.isFinite(qtyNum)
+      ? qtyNum / snap.last
+      : null;
 
   const sl = parseFloat(stopPrice);
   const tp = parseFloat(takePrice);
@@ -751,14 +775,42 @@ function OrderEntry({
         </button>
       </div>
       <label className="gt-field">
-        <span>Qty</span>
-        <input
-          type="number"
-          min="0"
-          step="any"
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-        />
+        <span>
+          {qtyMode === 'shares' ? 'Qty (shares)' : 'Notional ($)'}
+          {estDollars !== null && (
+            <em className="gt-est">≈ {fmtMoney(estDollars)}</em>
+          )}
+          {estShares !== null && (
+            <em className="gt-est">≈ {estShares.toFixed(4)} sh</em>
+          )}
+        </span>
+        <div className="gt-qty-row">
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+          <div className="gt-qty-mode" role="group">
+            <button
+              type="button"
+              className={qtyMode === 'shares' ? 'active' : ''}
+              onClick={() => setQtyMode('shares')}
+              title="Quantity in shares (can be fractional)"
+            >
+              sh
+            </button>
+            <button
+              type="button"
+              className={qtyMode === 'dollars' ? 'active' : ''}
+              onClick={() => setQtyMode('dollars')}
+              title="Dollar amount (notional)"
+            >
+              $
+            </button>
+          </div>
+        </div>
       </label>
       <label className="gt-field">
         <span>Type</span>
@@ -790,12 +842,14 @@ function OrderEntry({
           <option value="fok">FOK</option>
         </select>
       </label>
-      <div className="gt-bracket gt-field-wide">
+      <div
+        className={`gt-bracket gt-field-wide ${isFractional ? 'disabled' : ''}`}
+      >
         <div className="gt-bracket-row">
           <label className="gt-field">
             <span>
               Stop loss{' '}
-              {slPctActual !== null && (
+              {slPctActual !== null && !isFractional && (
                 <em className={slPctActual < 0 ? 'neg' : 'pos'}>
                   {slPctActual > 0 ? '+' : ''}
                   {slPctActual.toFixed(1)}%
@@ -807,13 +861,14 @@ function OrderEntry({
               step="any"
               value={stopPrice}
               onChange={(e) => setStopPrice(e.target.value)}
-              placeholder="off"
+              placeholder={isFractional ? 'n/a (fractional)' : 'off'}
+              disabled={isFractional}
             />
           </label>
           <label className="gt-field">
             <span>
               Take profit{' '}
-              {tpPctActual !== null && (
+              {tpPctActual !== null && !isFractional && (
                 <em className={tpPctActual >= 0 ? 'pos' : 'neg'}>
                   {tpPctActual > 0 ? '+' : ''}
                   {tpPctActual.toFixed(1)}%
@@ -825,10 +880,18 @@ function OrderEntry({
               step="any"
               value={takePrice}
               onChange={(e) => setTakePrice(e.target.value)}
-              placeholder="off"
+              placeholder={isFractional ? 'n/a (fractional)' : 'off'}
+              disabled={isFractional}
             />
           </label>
         </div>
+        {isFractional && (
+          <div className="gt-note">
+            Alpaca doesn't support SL/TP on fractional or notional orders.
+            Use whole shares to attach bracket legs, or set SL/TP on the
+            position after it fills.
+          </div>
+        )}
         <div className="gt-bracket-defaults">
           <span>Defaults</span>
           <label>
