@@ -32,8 +32,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const url = new URL(req.url);
-  const m = url.pathname.match(/\/functions\/v1\/alpaca\/?(.*)$/);
-  const path = (m?.[1] ?? "").replace(/^\/+/, "");
+  // Supabase passes the URL with the function name as the first segment of the
+  // pathname (e.g. "/alpaca/v2/account"). Strip it so we end up with the
+  // Alpaca-side path ("v2/account").
+  let path = url.pathname.replace(/^\/+/, "");
+  if (path === "alpaca") path = "";
+  else if (path.startsWith("alpaca/")) path = path.slice("alpaca/".length);
 
   const env = (req.headers.get("x-alpaca-env") ?? "paper").toLowerCase();
   const target = (req.headers.get("x-alpaca-target") ?? "trading").toLowerCase();
