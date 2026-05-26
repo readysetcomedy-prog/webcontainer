@@ -206,7 +206,7 @@ html, body, #root {
 
 .gt-grid {
   display: grid;
-  grid-template-columns: 320px 1fr 280px;
+  grid-template-columns: minmax(360px, 400px) minmax(0, 1fr) 280px;
   gap: 16px;
 }
 
@@ -532,26 +532,29 @@ html, body, #root {
   gap: 8px;
   font-size: 11px;
   color: var(--fg-dim);
+}
+
+.gt-defaults-label {
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  font-weight: 600;
 }
 
 .gt-bracket-defaults label {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  text-transform: none;
-  letter-spacing: 0;
 }
 
 .gt-bracket-defaults input {
-  width: 50px;
+  width: 44px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--fg);
   padding: 2px 4px;
   font-size: 12px;
+  text-align: right;
 }
 
 .gt-submit {

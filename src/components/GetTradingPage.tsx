@@ -887,13 +887,12 @@ function OrderEntry({
         </div>
         {isFractional && (
           <div className="gt-note">
-            Alpaca doesn't support SL/TP on fractional or notional orders.
-            Use whole shares to attach bracket legs, or set SL/TP on the
-            position after it fills.
+            SL/TP unavailable on fractional orders — use the SL/TP
+            button on the position after it fills.
           </div>
         )}
         <div className="gt-bracket-defaults">
-          <span>Defaults</span>
+          <span className="gt-defaults-label">Defaults</span>
           <label>
             SL
             <input
@@ -924,7 +923,7 @@ function OrderEntry({
             type="button"
             className="gt-link"
             onClick={recomputeFromDefaults}
-            disabled={!snap?.last}
+            disabled={!snap?.last || isFractional}
             title="Recompute SL/TP from defaults at current price"
           >
             apply
@@ -977,6 +976,10 @@ function PositionsTable({
             const lastPrice =
               snapshots[p.symbol]?.last ?? parseFloat(p.current_price);
             const pl = parseFloat(p.unrealized_pl);
+            const qtyNum = parseFloat(p.qty);
+            const qtyDisplay = Number.isInteger(qtyNum)
+              ? String(qtyNum)
+              : qtyNum.toFixed(4);
             return (
               <tr key={p.asset_id}>
                 <td>
@@ -987,7 +990,7 @@ function PositionsTable({
                     {p.symbol}
                   </button>
                 </td>
-                <td>{fmtNum(p.qty, 0)}</td>
+                <td>{qtyDisplay}</td>
                 <td>{fmtMoney(p.avg_entry_price)}</td>
                 <td>{fmtMoney(lastPrice)}</td>
                 <td>{fmtMoney(p.market_value)}</td>
