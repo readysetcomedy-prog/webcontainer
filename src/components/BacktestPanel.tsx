@@ -302,6 +302,14 @@ export default function BacktestPanel({
           </span>
         )}
       </div>
+      {result && Object.keys(result.symbolErrors).length > 0 && (
+        <div className="gt-warn">
+          {Object.keys(result.symbolErrors).length} symbol
+          {Object.keys(result.symbolErrors).length === 1 ? '' : 's'} failed to
+          fetch. Sample error:{' '}
+          <code>{Object.values(result.symbolErrors)[0]}</code>
+        </div>
+      )}
       {error && <div className="gt-warn">{error}</div>}
       {result && <BacktestResults result={result} expanded={expanded} setExpanded={setExpanded} />}
     </div>

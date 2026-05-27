@@ -386,11 +386,21 @@ export async function getBarsRange(
 ) {
   const sym = symbol.trim().toUpperCase();
   if (!sym) return [] as AlpacaBar[];
+  // Alpaca's free (IEX) feed rejects requests whose `end` is within the last
+  // ~15 minutes with HTTP 403 "subscription does not permit querying recent
+  // SIP data". If the caller passed today's date as YYYY-MM-DD, swap it for
+  // a timestamp 16 minutes in the past so the request stays in IEX-allowed
+  // territory. Past dates get an end-of-day timestamp.
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const endParam =
+    endDate >= todayUTC
+      ? new Date(Date.now() - 16 * 60 * 1000).toISOString()
+      : `${endDate}T23:59:59Z`;
   const res = await call<{ bars: RawBar[] | null }>(
     env,
     'data',
     'GET',
-    `v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${timeframe}&start=${startDate}&end=${endDate}&limit=${limit}&adjustment=split`,
+    `v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${timeframe}&start=${startDate}&end=${encodeURIComponent(endParam)}&limit=${limit}&adjustment=split`,
   );
   return (res.bars ?? []).map<AlpacaBar>((b) => ({
     time: b.t,
