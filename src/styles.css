@@ -588,6 +588,51 @@ html, body, #root {
   margin-top: 4px;
 }
 
+.gt-order-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.gt-filter-input,
+.gt-order-filters select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.gt-filter-input {
+  width: 80px;
+}
+
+.gt-filter-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gt-filter-date input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 3px 6px;
+  font-size: 12px;
+  color-scheme: dark;
+}
+
+.gt-filter-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 .gt-bracket.disabled {
   opacity: 0.55;
 }

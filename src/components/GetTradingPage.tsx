@@ -29,7 +29,7 @@ const WATCHLIST_KEY = 'gettrading.watchlist';
 const WATCHLIST_VERSION_KEY = 'gettrading.watchlistDefaultsVersion';
 // Bump this whenever DEFAULT_WATCHLIST gets new symbols so existing users
 // get the additions merged in on next load.
-const WATCHLIST_DEFAULTS_VERSION = '3';
+const WATCHLIST_DEFAULTS_VERSION = '4';
 const CHART_SYMBOL_KEY = 'gettrading.chartSymbol';
 const CHART_RANGE_KEY = 'gettrading.chartRange';
 const COLLAPSED_KEY = 'gettrading.collapsed';
@@ -62,9 +62,22 @@ const DEFAULT_WATCHLIST = [
   'AMAT', 'ASML', 'LRCX',
   'CRWD', 'NET', 'DDOG',
   'ARKK', 'DIA', 'XLE', 'XLF', 'GLD', 'TLT',
+  // +50 next batch: more sector ETFs, fintech/SaaS, recent IPOs, crypto-adj,
+  // cannabis, regional ETFs, vol products, energy, banks, megacaps not yet
+  // covered.
+  'XLU', 'XLI', 'XLY', 'XLP', 'XLV', 'XLB', 'XBI', 'SMH', 'SOXX', 'KWEB',
+  'EWZ', 'EEM', 'VXX', 'UVXY',
+  'SQ', 'PYPL', 'ROKU', 'DKNG', 'ABNB', 'ZM', 'TTD', 'DOCU', 'PINS', 'SNAP',
+  'LYFT', 'DASH', 'CVNA', 'AFRM', 'UPST',
+  'CLSK', 'CIFR', 'BITF', 'WULF', 'GBTC', 'BITO',
+  'TLRY', 'CGC',
+  'BIIB', 'VRTX',
+  'OXY', 'USO',
+  'C', 'MS', 'AXP', 'SCHW',
+  'ADBE', 'TXN', 'CSCO', 'VZ', 'T', 'TMUS',
 ];
 
-const MAX_WATCHLIST = 100;
+const MAX_WATCHLIST = 150;
 
 type ChartRange = '1D' | '5D' | '1H' | '1Mo' | '1Y' | '5Y';
 
@@ -653,6 +666,7 @@ export default function GetTradingPage() {
             symbol={selectedSymbol}
             snapshots={snapshots}
             positions={positions}
+            buyingPower={parseFloat(account?.buying_power ?? '0') || 0}
             defaultSlPct={defaultSlPct}
             defaultTpPct={defaultTpPct}
             onChangeDefaultSlPct={setDefaultSlPct}
@@ -893,11 +907,14 @@ function AccountStat({
   );
 }
 
+type QtyMode = 'shares' | 'dollars' | 'pct';
+
 function OrderEntry({
   busy,
   symbol: externalSymbol,
   snapshots,
   positions,
+  buyingPower,
   defaultSlPct,
   defaultTpPct,
   onChangeDefaultSlPct,
@@ -908,6 +925,7 @@ function OrderEntry({
   symbol: string;
   snapshots: Record<string, AlpacaSnapshot>;
   positions: AlpacaPosition[];
+  buyingPower: number;
   defaultSlPct: number;
   defaultTpPct: number;
   onChangeDefaultSlPct: (n: number) => void;
@@ -917,7 +935,7 @@ function OrderEntry({
   const [symbol, setSymbol] = useState(externalSymbol);
   const [side, setSide] = useState<OrderSide>('buy');
   const [type, setType] = useState<OrderType>('market');
-  const [qtyMode, setQtyMode] = useState<'shares' | 'dollars'>('shares');
+  const [qtyMode, setQtyMode] = useState<QtyMode>('shares');
   const [qty, setQty] = useState('0.1');
   const [limit, setLimit] = useState('');
   const [tif, setTif] = useState<TimeInForce>('day');
@@ -965,10 +983,18 @@ function OrderEntry({
     const tp = parseFloat(takePrice);
     const hasSL = Number.isFinite(sl) && sl > 0;
     const hasTP = Number.isFinite(tp) && tp > 0;
+    // % buying power mode resolves to a notional $ amount.
+    const notional =
+      qtyMode === 'pct'
+        ? buyingPower * (qtyNum / 100)
+        : qtyMode === 'dollars'
+        ? qtyNum
+        : null;
+    if (qtyMode !== 'shares' && (!Number.isFinite(notional!) || notional! <= 0)) return;
     // Fractional / notional orders on Alpaca require day TIF and don't support
     // bracket/OTO/OCO. Detect and silently downgrade so we don't get a 422.
     const isFractional =
-      qtyMode === 'dollars' || qtyNum !== Math.floor(qtyNum);
+      qtyMode !== 'shares' || qtyNum !== Math.floor(qtyNum);
     const effectiveTif: TimeInForce = isFractional
       ? 'day'
       : hasSL || hasTP
@@ -981,7 +1007,9 @@ function OrderEntry({
       side,
       type,
       time_in_force: effectiveTif,
-      ...(qtyMode === 'dollars' ? { notional: qtyNum } : { qty: qtyNum }),
+      ...(notional !== null
+        ? { notional: Math.round(notional * 100) / 100 }
+        : { qty: qtyNum }),
       ...(type === 'limit' || type === 'stop_limit'
         ? { limit_price: parseFloat(limit) }
         : {}),
@@ -1004,15 +1032,23 @@ function OrderEntry({
 
   const qtyNum = parseFloat(qty);
   const isFractional =
-    qtyMode === 'dollars' ||
+    qtyMode !== 'shares' ||
     (Number.isFinite(qtyNum) && qtyNum > 0 && qtyNum !== Math.floor(qtyNum));
+  const pctNotional =
+    qtyMode === 'pct' && Number.isFinite(qtyNum)
+      ? buyingPower * (qtyNum / 100)
+      : null;
   const estDollars =
     qtyMode === 'shares' && snap?.last && Number.isFinite(qtyNum)
       ? qtyNum * snap.last
+      : qtyMode === 'pct' && pctNotional !== null
+      ? pctNotional
       : null;
   const estShares =
     qtyMode === 'dollars' && snap?.last && Number.isFinite(qtyNum)
       ? qtyNum / snap.last
+      : qtyMode === 'pct' && pctNotional !== null && snap?.last
+      ? pctNotional / snap.last
       : null;
 
   const sl = parseFloat(stopPrice);
@@ -1086,7 +1122,11 @@ function OrderEntry({
       </div>
       <label className="gt-field">
         <span>
-          {qtyMode === 'shares' ? 'Qty (shares)' : 'Notional ($)'}
+          {qtyMode === 'shares'
+            ? 'Qty (shares)'
+            : qtyMode === 'dollars'
+            ? 'Notional ($)'
+            : '% of buying power'}
           {estDollars !== null && (
             <em className="gt-est">≈ {fmtMoney(estDollars)}</em>
           )}
@@ -1118,6 +1158,14 @@ function OrderEntry({
               title="Dollar amount (notional)"
             >
               $
+            </button>
+            <button
+              type="button"
+              className={qtyMode === 'pct' ? 'active' : ''}
+              onClick={() => setQtyMode('pct')}
+              title="Percentage of buying power"
+            >
+              %
             </button>
           </div>
         </div>
@@ -1351,61 +1399,166 @@ function OrdersTable({
   orders: AlpacaOrder[];
   onCancel: (id: string) => void;
 }) {
-  if (orders.length === 0) {
-    return <div className="gt-empty">No orders yet.</div>;
-  }
+  const [symbolFilter, setSymbolFilter] = useState('');
+  const [sideFilter, setSideFilter] = useState<'all' | 'buy' | 'sell'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'filled' | 'open' | 'canceled'>(
+    'all',
+  );
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+
+  const filtered = useMemo(() => {
+    const sym = symbolFilter.trim().toUpperCase();
+    const fromTs = fromDate ? new Date(fromDate + 'T00:00:00').getTime() : null;
+    // toDate is inclusive — extend to end of day.
+    const toTs = toDate ? new Date(toDate + 'T23:59:59.999').getTime() : null;
+    const openSet = new Set([
+      'new',
+      'accepted',
+      'pending_new',
+      'partially_filled',
+      'pending_replace',
+      'replaced',
+      'held',
+    ]);
+    return orders.filter((o) => {
+      if (sym && !o.symbol.includes(sym)) return false;
+      if (sideFilter !== 'all' && o.side !== sideFilter) return false;
+      if (statusFilter === 'filled' && o.status !== 'filled') return false;
+      if (statusFilter === 'canceled' && o.status !== 'canceled') return false;
+      if (statusFilter === 'open' && !openSet.has(o.status)) return false;
+      if (fromTs || toTs) {
+        const ts = new Date(o.submitted_at).getTime();
+        if (fromTs && ts < fromTs) return false;
+        if (toTs && ts > toTs) return false;
+      }
+      return true;
+    });
+  }, [orders, symbolFilter, sideFilter, statusFilter, fromDate, toDate]);
+
+  const hasFilters =
+    symbolFilter || sideFilter !== 'all' || statusFilter !== 'all' || fromDate || toDate;
+
   return (
-    <div className="gt-table-wrap">
-      <table className="gt-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Symbol</th>
-            <th>Side</th>
-            <th>Type</th>
-            <th>Qty</th>
-            <th>Limit</th>
-            <th>Status</th>
-            <th>Filled</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((o) => {
-            const cancellable = [
-              'new',
-              'accepted',
-              'pending_new',
-              'partially_filled',
-            ].includes(o.status);
-            return (
-              <tr key={o.id}>
-                <td>{new Date(o.submitted_at).toLocaleString()}</td>
-                <td className="gt-sym">{o.symbol}</td>
-                <td className={o.side === 'buy' ? 'pos' : 'neg'}>
-                  {o.side.toUpperCase()}
-                </td>
-                <td>{o.type}</td>
-                <td>{o.qty ?? '—'}</td>
-                <td>{o.limit_price ? fmtMoney(o.limit_price) : '—'}</td>
-                <td>{o.status}</td>
-                <td>
-                  {o.filled_qty}
-                  {o.filled_avg_price ? ` @ ${fmtMoney(o.filled_avg_price)}` : ''}
-                </td>
-                <td>
-                  {cancellable && (
-                    <button className="gt-link" onClick={() => onCancel(o.id)}>
-                      Cancel
-                    </button>
-                  )}
-                </td>
+    <>
+      <div className="gt-order-filters">
+        <input
+          className="gt-filter-input"
+          type="text"
+          placeholder="Symbol"
+          value={symbolFilter}
+          onChange={(e) => setSymbolFilter(e.target.value)}
+        />
+        <select
+          value={sideFilter}
+          onChange={(e) => setSideFilter(e.target.value as typeof sideFilter)}
+        >
+          <option value="all">All sides</option>
+          <option value="buy">Buy</option>
+          <option value="sell">Sell</option>
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+        >
+          <option value="all">All statuses</option>
+          <option value="filled">Filled</option>
+          <option value="open">Open</option>
+          <option value="canceled">Canceled</option>
+        </select>
+        <label className="gt-filter-date">
+          From
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+        </label>
+        <label className="gt-filter-date">
+          To
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+          />
+        </label>
+        {hasFilters && (
+          <button
+            type="button"
+            className="gt-link"
+            onClick={() => {
+              setSymbolFilter('');
+              setSideFilter('all');
+              setStatusFilter('all');
+              setFromDate('');
+              setToDate('');
+            }}
+          >
+            clear
+          </button>
+        )}
+        <span className="gt-filter-count">
+          {filtered.length}/{orders.length}
+        </span>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="gt-empty">
+          {orders.length === 0 ? 'No orders yet.' : 'No orders match filters.'}
+        </div>
+      ) : (
+        <div className="gt-table-wrap">
+          <table className="gt-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Type</th>
+                <th>Qty</th>
+                <th>Limit</th>
+                <th>Status</th>
+                <th>Filled</th>
+                <th></th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+            </thead>
+            <tbody>
+              {filtered.map((o) => {
+                const cancellable = [
+                  'new',
+                  'accepted',
+                  'pending_new',
+                  'partially_filled',
+                ].includes(o.status);
+                return (
+                  <tr key={o.id}>
+                    <td>{new Date(o.submitted_at).toLocaleString()}</td>
+                    <td className="gt-sym">{o.symbol}</td>
+                    <td className={o.side === 'buy' ? 'pos' : 'neg'}>
+                      {o.side.toUpperCase()}
+                    </td>
+                    <td>{o.type}</td>
+                    <td>{o.qty ?? '—'}</td>
+                    <td>{o.limit_price ? fmtMoney(o.limit_price) : '—'}</td>
+                    <td>{o.status}</td>
+                    <td>
+                      {o.filled_qty}
+                      {o.filled_avg_price ? ` @ ${fmtMoney(o.filled_avg_price)}` : ''}
+                    </td>
+                    <td>
+                      {cancellable && (
+                        <button className="gt-link" onClick={() => onCancel(o.id)}>
+                          Cancel
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
