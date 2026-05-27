@@ -200,6 +200,17 @@ export function closePosition(env: AlpacaEnv, symbol: string) {
   return call<AlpacaOrder>(env, 'trading', 'DELETE', `v2/positions/${symbol}`);
 }
 
+export interface AlpacaClock {
+  timestamp: string;
+  is_open: boolean;
+  next_open: string;
+  next_close: string;
+}
+
+export function getClock(env: AlpacaEnv) {
+  return call<AlpacaClock>(env, 'trading', 'GET', 'v2/clock');
+}
+
 export async function getLatestQuotes(env: AlpacaEnv, symbols: string[]) {
   if (symbols.length === 0) return {} as Record<string, LatestQuote>;
   const list = symbols.map((s) => s.trim().toUpperCase()).filter(Boolean).join(',');

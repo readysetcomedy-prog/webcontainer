@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   cancelOrder,
   closePosition,
+  getClock,
   getAccount,
   getBars,
   getSnapshots,
@@ -501,12 +502,29 @@ export default function GetTradingPage() {
           }
         }
         if (!closed) throw lastErr ?? new Error('close failed');
-        notify(
-          'ok',
+        // closePosition just queues a market order. If the market is closed
+        // it sits at "accepted" until the next session — without that detail
+        // the toast looks like "closed!" while the position is still on the
+        // table. Surface market state in the message.
+        let msg =
           openOnSymbol.length > 0
             ? `${symbol} close submitted (canceled ${openOnSymbol.length} open order${openOnSymbol.length === 1 ? '' : 's'} first)`
-            : `${symbol} close order submitted`,
-        );
+            : `${symbol} close order submitted`;
+        try {
+          const clock = await getClock(env);
+          if (!clock.is_open) {
+            const next = new Date(clock.next_open);
+            const when = next.toLocaleString(undefined, {
+              weekday: 'short',
+              hour: 'numeric',
+              minute: '2-digit',
+            });
+            msg += ` — market closed, fills at next open (${when})`;
+          }
+        } catch {
+          // best-effort; clock isn't critical
+        }
+        notify('ok', msg);
         await refreshAccountState();
       } catch (e) {
         notify('err', (e as Error).message);
