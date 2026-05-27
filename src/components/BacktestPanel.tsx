@@ -54,6 +54,7 @@ export default function BacktestPanel({
     A: true,
     B: true,
     C: true,
+    D: true,
   });
   const [disableEOD, setDisableEOD] = useState(false);
 
@@ -62,7 +63,7 @@ export default function BacktestPanel({
   async function run() {
     setError(null);
     setResult(null);
-    const variants = (['A', 'B', 'C'] as BacktestVariant[]).filter(
+    const variants = (['A', 'B', 'C', 'D'] as BacktestVariant[]).filter(
       (v) => variantSelected[v],
     );
     if (variants.length === 0) {
@@ -252,7 +253,7 @@ export default function BacktestPanel({
         </label>
       </div>
       <div className="gt-backtest-variants">
-        {(['A', 'B', 'C'] as BacktestVariant[]).map((v) => (
+        {(['A', 'B', 'C', 'D'] as BacktestVariant[]).map((v) => (
           <label key={v} className="gt-check">
             <input
               type="checkbox"

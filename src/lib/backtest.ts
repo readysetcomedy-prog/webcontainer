@@ -23,12 +23,13 @@ export function etParts(utcIso: string): { date: string; h: number; m: number } 
   };
 }
 
-export type BacktestVariant = 'A' | 'B' | 'C';
+export type BacktestVariant = 'A' | 'B' | 'C' | 'D';
 
 export const VARIANT_LABELS: Record<BacktestVariant, string> = {
   A: 'Up ≥2% from prev close',
   B: 'Opening-range breakout (9:30–9:45 high)',
   C: 'A + volume ≥2× 20-day avg',
+  D: 'A + SPY positive intraday + stock above 10-day trend',
 };
 
 export interface BacktestConfig {
@@ -298,10 +299,49 @@ export async function runBacktest(
     A: [],
     B: [],
     C: [],
+    D: [],
   };
   let symbolsProcessed = 0;
   const total = config.symbols.length;
   const period = resolvePeriod(config);
+
+  // Variant D needs the broad-market regime at 11 AM ET on each backtest day.
+  // Pre-fetch SPY across the full window once and build a date → spyChangePct
+  // map; if SPY fetch fails we still run, but D evaluates as "never qualifies".
+  // SPY's bars are also used to derive the cumulative intraday move at the
+  // entry hour, not just the prev-close → 11 AM bar.
+  const spyByDate = new Map<string, number>();
+  if (config.variants.includes('D')) {
+    try {
+      const spyBars = await getBarsRange(
+        env,
+        'SPY',
+        '5Min',
+        period.startDate,
+        period.endDate,
+      );
+      const spyDays = groupBarsByETDate(spyBars);
+      const sortedDates = [...spyDays.keys()].sort();
+      for (let i = 1; i < sortedDates.length; i++) {
+        const todayBarsSpy = spyDays.get(sortedDates[i])!;
+        const prevBarsSpy = spyDays.get(sortedDates[i - 1])!;
+        const prevCloseSpy = prevBarsSpy[prevBarsSpy.length - 1]?.close;
+        const entryBarSpy = findBarAtET(
+          todayBarsSpy,
+          config.entryHourET,
+          config.entryMinuteET,
+        );
+        if (prevCloseSpy && entryBarSpy && prevCloseSpy > 0) {
+          spyByDate.set(
+            sortedDates[i],
+            (entryBarSpy.close - prevCloseSpy) / prevCloseSpy,
+          );
+        }
+      }
+    } catch (e) {
+      errors['SPY'] = `regime filter unavailable: ${(e as Error).message}`;
+    }
+  }
 
   // Fetch bars across the resolved [startDate, endDate] window. Use getBarsRange
   // for both modes — lookback mode just resolves to a trailing range — so the
@@ -321,7 +361,7 @@ export async function runBacktest(
             period.startDate,
             period.endDate,
           );
-          processSymbol(sym, bars, config, tradesByVariant);
+          processSymbol(sym, bars, config, tradesByVariant, spyByDate);
         } catch (e) {
           errors[sym] = (e as Error).message;
         } finally {
@@ -351,6 +391,7 @@ function processSymbol(
   bars: AlpacaBar[],
   config: BacktestConfig,
   tradesByVariant: Record<BacktestVariant, BacktestTrade[]>,
+  spyByDate: Map<string, number>,
 ) {
   if (bars.length === 0) return;
   const byDate = groupBarsByETDate(bars);
@@ -416,9 +457,37 @@ function processSymbol(
       }
     }
 
+    // Variant D: regime + trend filter on top of A. Three gates:
+    //   1. Same direction signal as A (up ≥ upPct from prev close at 11 ET).
+    //   2. SPY is positive intraday at 11 ET (broad market is supportive).
+    //   3. Stock's price 10 sessions ago was below today's prev close
+    //      (positive 10-day trend on the stock itself — basic relative
+    //      strength filter, no SMA library needed).
+    // Each filter has solid academic backing for momentum-style trades; the
+    // combination cuts out chop-period entries that the user's 30-vs-90 day
+    // observation suggested was the killer.
+    let dQualifies = false;
+    if (config.variants.includes('D') && aQualifies) {
+      const spyChange = spyByDate.get(date);
+      const spyOk = spyChange !== undefined && spyChange > 0;
+      const tenAgoIdx = di - 10;
+      const tenAgoClose =
+        tenAgoIdx >= 0
+          ? byDate.get(dates[tenAgoIdx])?.slice(-1)[0]?.close
+          : undefined;
+      const trendOk = tenAgoClose !== undefined && prevClose > tenAgoClose;
+      dQualifies = spyOk && trendOk;
+    }
+
     for (const variant of config.variants) {
       const qualifies =
-        variant === 'A' ? aQualifies : variant === 'B' ? bQualifies : cQualifies;
+        variant === 'A'
+          ? aQualifies
+          : variant === 'B'
+          ? bQualifies
+          : variant === 'C'
+          ? cQualifies
+          : dQualifies;
       if (!qualifies) continue;
       // With disableEOD, the trade can span multiple sessions, so we feed it
       // the full forward window. Without it, sticking to same-day bars is
