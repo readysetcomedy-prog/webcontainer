@@ -355,7 +355,7 @@ export default function GetTradingPage() {
       const [acct, pos, ord] = await Promise.all([
         getAccount(env),
         listPositions(env),
-        listOrders(env, 'all', 50),
+        listOrders(env, 'all', 500),
       ]);
       setAccount(acct);
       setPositions(pos);
@@ -1392,6 +1392,79 @@ function PositionsTable({
   );
 }
 
+interface Lot {
+  qty: number;
+  price: number;
+  side: 'long' | 'short';
+}
+
+// FIFO-matches fills per symbol and returns realized P&L per *closing* order.
+// Opening fills get null (no realized P&L until they're closed). Returns a map
+// of orderId → realized $ amount (or null).
+function computeRealizedPnL(orders: AlpacaOrder[]): Map<string, number | null> {
+  const out = new Map<string, number | null>();
+  // Process oldest fill first so the FIFO inventory matches actual sequence.
+  const chronological = [...orders].sort((a, b) => {
+    const at = new Date(a.filled_at || a.submitted_at).getTime();
+    const bt = new Date(b.filled_at || b.submitted_at).getTime();
+    return at - bt;
+  });
+  const inventory: Record<string, Lot[]> = {};
+
+  for (const o of chronological) {
+    if (o.status !== 'filled' && o.status !== 'partially_filled') {
+      out.set(o.id, null);
+      continue;
+    }
+    const fillQty = parseFloat(o.filled_qty);
+    const fillPrice = parseFloat(o.filled_avg_price ?? '0');
+    if (!Number.isFinite(fillQty) || fillQty <= 0 || !Number.isFinite(fillPrice) || fillPrice <= 0) {
+      out.set(o.id, null);
+      continue;
+    }
+    const lots = inventory[o.symbol] ?? (inventory[o.symbol] = []);
+    const firstLotSide = lots[0]?.side;
+    const isClosingLong = firstLotSide === 'long' && o.side === 'sell';
+    const isClosingShort = firstLotSide === 'short' && o.side === 'buy';
+
+    if (!isClosingLong && !isClosingShort) {
+      // Opening fill (or adding to existing same-side position).
+      lots.push({
+        qty: fillQty,
+        price: fillPrice,
+        side: o.side === 'buy' ? 'long' : 'short',
+      });
+      out.set(o.id, null);
+      continue;
+    }
+
+    let realized = 0;
+    let remaining = fillQty;
+    const closingSide = isClosingLong ? 'long' : 'short';
+    while (remaining > 0 && lots.length > 0 && lots[0].side === closingSide) {
+      const lot = lots[0];
+      const match = Math.min(remaining, lot.qty);
+      realized += isClosingLong
+        ? (fillPrice - lot.price) * match
+        : (lot.price - fillPrice) * match;
+      lot.qty -= match;
+      remaining -= match;
+      if (lot.qty < 1e-9) lots.shift();
+    }
+    // Any remaining qty after fully consuming opposite-side inventory flips the
+    // position (e.g. sold more than the long lots — opens a short).
+    if (remaining > 0) {
+      lots.push({
+        qty: remaining,
+        price: fillPrice,
+        side: o.side === 'buy' ? 'long' : 'short',
+      });
+    }
+    out.set(o.id, realized);
+  }
+  return out;
+}
+
 function OrdersTable({
   orders,
   onCancel,
@@ -1406,6 +1479,11 @@ function OrdersTable({
   );
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+
+  // FIFO-matched realized P&L per order. Computed across *all* orders (not
+  // just the filtered view) so closing trades reference the correct entry lot
+  // even when filters hide earlier opens.
+  const pnlByOrderId = useMemo(() => computeRealizedPnL(orders), [orders]);
 
   const filtered = useMemo(() => {
     const sym = symbolFilter.trim().toUpperCase();
@@ -1438,6 +1516,17 @@ function OrdersTable({
 
   const hasFilters =
     symbolFilter || sideFilter !== 'all' || statusFilter !== 'all' || fromDate || toDate;
+
+  // Sum of realized P&L over the visible (filtered) orders.
+  let visiblePnL = 0;
+  let visiblePnLCount = 0;
+  for (const o of filtered) {
+    const v = pnlByOrderId.get(o.id);
+    if (typeof v === 'number') {
+      visiblePnL += v;
+      visiblePnLCount += 1;
+    }
+  }
 
   return (
     <>
@@ -1501,6 +1590,19 @@ function OrdersTable({
           {filtered.length}/{orders.length}
         </span>
       </div>
+      {visiblePnLCount > 0 && (
+        <div className="gt-pnl-summary">
+          Realized P&L on closed trades
+          {hasFilters ? ' (filtered)' : ''}:{' '}
+          <strong className={visiblePnL >= 0 ? 'pos' : 'neg'}>
+            {visiblePnL >= 0 ? '+' : ''}
+            {fmtMoney(visiblePnL)}
+          </strong>{' '}
+          <span className="gt-muted">
+            across {visiblePnLCount} close{visiblePnLCount === 1 ? '' : 's'}
+          </span>
+        </div>
+      )}
       {filtered.length === 0 ? (
         <div className="gt-empty">
           {orders.length === 0 ? 'No orders yet.' : 'No orders match filters.'}
@@ -1518,6 +1620,7 @@ function OrdersTable({
                 <th>Limit</th>
                 <th>Status</th>
                 <th>Filled</th>
+                <th>P&amp;L</th>
                 <th></th>
               </tr>
             </thead>
@@ -1529,6 +1632,7 @@ function OrdersTable({
                   'pending_new',
                   'partially_filled',
                 ].includes(o.status);
+                const pnl = pnlByOrderId.get(o.id);
                 return (
                   <tr key={o.id}>
                     <td>{new Date(o.submitted_at).toLocaleString()}</td>
@@ -1543,6 +1647,11 @@ function OrdersTable({
                     <td>
                       {o.filled_qty}
                       {o.filled_avg_price ? ` @ ${fmtMoney(o.filled_avg_price)}` : ''}
+                    </td>
+                    <td className={typeof pnl === 'number' ? (pnl >= 0 ? 'pos' : 'neg') : ''}>
+                      {typeof pnl === 'number'
+                        ? `${pnl >= 0 ? '+' : ''}${fmtMoney(pnl)}`
+                        : '—'}
                     </td>
                     <td>
                       {cancellable && (

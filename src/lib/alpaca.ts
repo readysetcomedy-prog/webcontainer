@@ -179,7 +179,7 @@ export function listPositions(env: AlpacaEnv) {
   return call<AlpacaPosition[]>(env, 'trading', 'GET', 'v2/positions');
 }
 
-export function listOrders(env: AlpacaEnv, status: 'open' | 'closed' | 'all' = 'all', limit = 50) {
+export function listOrders(env: AlpacaEnv, status: 'open' | 'closed' | 'all' = 'all', limit = 500) {
   return call<AlpacaOrder[]>(
     env,
     'trading',
