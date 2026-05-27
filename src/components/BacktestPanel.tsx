@@ -55,6 +55,7 @@ export default function BacktestPanel({
     B: true,
     C: true,
   });
+  const [disableEOD, setDisableEOD] = useState(false);
 
   const [expanded, setExpanded] = useState<BacktestVariant | null>(null);
 
@@ -98,6 +99,7 @@ export default function BacktestPanel({
       upPct: upPct / 100,
       volMultiple: volMult,
       orbStartMinutes: 15,
+      disableEOD,
     };
     setRunning(true);
     setProgress({ done: 0, total: symbols.length });
@@ -262,6 +264,18 @@ export default function BacktestPanel({
             <strong>{v}</strong> {VARIANT_LABELS[v]}
           </label>
         ))}
+        <label className="gt-check" style={{ marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={disableEOD}
+            onChange={(e) => setDisableEOD(e.target.checked)}
+          />
+          <strong>Hold until SL or TP</strong>{' '}
+          <span className="gt-muted">
+            (no EOD close — trades can carry overnight and across days,
+            absorbing gap risk)
+          </span>
+        </label>
       </div>
       <div className="gt-backtest-actions">
         <button
@@ -325,7 +339,8 @@ function BacktestResults({
             <th>Avg loss</th>
             <th>Best</th>
             <th>Worst</th>
-            <th>SL/TP/EOD</th>
+            <th title="SL / TP / EOD / window (out-of-data)">SL/TP/EOD/W</th>
+            <th title="Average trading sessions held per trade">Avg days</th>
             <th></th>
           </tr>
         </thead>
@@ -352,9 +367,11 @@ function BacktestResults({
                 <td className="neg">{fmtMoney(v.worstTrade)}</td>
                 <td>
                   <span className="gt-muted">
-                    {v.exitReasons.sl}/{v.exitReasons.tp}/{v.exitReasons.eod}
+                    {v.exitReasons.sl}/{v.exitReasons.tp}/{v.exitReasons.eod}/
+                    {v.exitReasons.window}
                   </span>
                 </td>
+                <td className="gt-muted">{v.avgDaysHeld.toFixed(1)}</td>
                 <td>
                   {v.totalTrades > 0 && (
                     <button
@@ -427,9 +444,17 @@ function TradeList({ trades }: { trades: BacktestTrade[] }) {
                       ? 'neg'
                       : 'gt-muted'
                   }
+                  title={
+                    t.exitReason === 'window'
+                      ? 'Ran out of bar data — never hit SL or TP within the backtest window'
+                      : undefined
+                  }
                 >
                   {t.exitReason.toUpperCase()}
                 </span>
+                {t.daysHeld > 1 && (
+                  <span className="gt-muted"> · {t.daysHeld}d</span>
+                )}
               </td>
               <td className={t.pnl >= 0 ? 'pos' : 'neg'}>{fmtPct(t.pnlPct)}</td>
               <td className={t.pnl >= 0 ? 'pos' : 'neg'}>

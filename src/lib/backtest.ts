@@ -50,6 +50,10 @@ export interface BacktestConfig {
   upPct: number;
   volMultiple: number;
   orbStartMinutes: number;
+  // When true, ignore the EOD time exit entirely — every trade is held until
+  // it hits SL or TP, even across multiple sessions and overnight gaps. Lets
+  // you test "what if I never closed early".
+  disableEOD?: boolean;
 }
 
 export interface BacktestPeriod {
@@ -66,10 +70,14 @@ export interface BacktestTrade {
   entryPrice: number;
   exitTime: string;
   exitPrice: number;
-  exitReason: 'sl' | 'tp' | 'eod';
+  // 'eod' = forced close at end-of-day time exit.
+  // 'window' = ran out of bar data without hitting SL/TP (only with disableEOD).
+  exitReason: 'sl' | 'tp' | 'eod' | 'window';
   shares: number;
   pnl: number;
   pnlPct: number;
+  // Number of trading sessions held (1 = entry and exit same day).
+  daysHeld: number;
 }
 
 export interface BacktestVariantResult {
@@ -83,10 +91,11 @@ export interface BacktestVariantResult {
   avgLoss: number;
   bestTrade: number;
   worstTrade: number;
-  exitReasons: { sl: number; tp: number; eod: number };
+  exitReasons: { sl: number; tp: number; eod: number; window: number };
   // Sum of $ deployed across all trades (positionSize * count), useful as a
   // denominator for "total return on deployed capital".
   capitalDeployed: number;
+  avgDaysHeld: number;
 }
 
 export interface BacktestResult {
@@ -172,21 +181,26 @@ function simulateTrade(
   variant: BacktestVariant,
   date: string,
   entryBar: AlpacaBar,
-  todayBars: AlpacaBar[],
+  futureBars: AlpacaBar[],
   config: BacktestConfig,
 ): BacktestTrade {
   const entryPrice = entryBar.close;
   const shares = config.positionSize / entryPrice;
   const slPrice = entryPrice * (1 - config.stopLossPct);
   const tpPrice = entryPrice * (1 + config.takeProfitPct);
-  const after = todayBars.filter((b) => b.time > entryBar.time);
 
   const finalize = (
     exitBar: AlpacaBar,
     exitPrice: number,
-    reason: 'sl' | 'tp' | 'eod',
+    reason: 'sl' | 'tp' | 'eod' | 'window',
   ): BacktestTrade => {
     const pnl = (exitPrice - entryPrice) * shares;
+    const entryDate = etParts(entryBar.time).date;
+    const exitDate = etParts(exitBar.time).date;
+    // daysHeld: count of distinct ET dates touched, so same-day = 1.
+    const daysHeld = exitDate === entryDate
+      ? 1
+      : Math.max(1, Math.round((new Date(exitDate).getTime() - new Date(entryDate).getTime()) / 86_400_000) + 1);
     return {
       symbol,
       variant,
@@ -199,12 +213,21 @@ function simulateTrade(
       shares,
       pnl,
       pnlPct: (exitPrice - entryPrice) / entryPrice,
+      daysHeld,
     };
   };
 
-  for (const bar of after) {
-    if (isAtOrAfterET(bar.time, config.exitHourET, config.exitMinuteET)) {
-      return finalize(bar, bar.open, 'eod');
+  for (const bar of futureBars) {
+    // EOD check (only when not disabled). Same-day only: if held overnight,
+    // entry-day's EOD has already passed.
+    if (!config.disableEOD) {
+      const sameDay = etParts(bar.time).date === etParts(entryBar.time).date;
+      if (
+        sameDay &&
+        isAtOrAfterET(bar.time, config.exitHourET, config.exitMinuteET)
+      ) {
+        return finalize(bar, bar.open, 'eod');
+      }
     }
     // If a bar gaps through both levels, assume worst-case (SL hits first).
     const hitSL = bar.low <= slPrice;
@@ -223,9 +246,9 @@ function simulateTrade(
     }
   }
 
-  // No EOD bar found (e.g. truncated session). Use last available bar.
-  const last = after[after.length - 1] ?? entryBar;
-  return finalize(last, last.close, 'eod');
+  // Ran off the end of available data without hitting SL/TP/EOD.
+  const last = futureBars[futureBars.length - 1] ?? entryBar;
+  return finalize(last, last.close, config.disableEOD ? 'window' : 'eod');
 }
 
 function statsFor(
@@ -235,15 +258,17 @@ function statsFor(
 ): BacktestVariantResult {
   const wins = trades.filter((t) => t.pnl > 0);
   const losses = trades.filter((t) => t.pnl < 0);
-  const exitReasons = { sl: 0, tp: 0, eod: 0 };
+  const exitReasons = { sl: 0, tp: 0, eod: 0, window: 0 };
   let totalPnL = 0;
   let best = 0;
   let worst = 0;
+  let daysSum = 0;
   for (const t of trades) {
     totalPnL += t.pnl;
     exitReasons[t.exitReason]++;
     if (t.pnl > best) best = t.pnl;
     if (t.pnl < worst) worst = t.pnl;
+    daysSum += t.daysHeld;
   }
   return {
     variant,
@@ -258,6 +283,7 @@ function statsFor(
     worstTrade: worst,
     exitReasons,
     capitalDeployed: trades.length * positionSize,
+    avgDaysHeld: trades.length ? daysSum / trades.length : 0,
   };
 }
 
@@ -394,7 +420,13 @@ function processSymbol(
       const qualifies =
         variant === 'A' ? aQualifies : variant === 'B' ? bQualifies : cQualifies;
       if (!qualifies) continue;
-      const trade = simulateTrade(symbol, variant, date, entryBar, todayBars, config);
+      // With disableEOD, the trade can span multiple sessions, so we feed it
+      // the full forward window. Without it, sticking to same-day bars is
+      // cheaper and equivalent.
+      const futureBars = config.disableEOD
+        ? bars.filter((b) => b.time > entryBar.time)
+        : todayBars.filter((b) => b.time > entryBar.time);
+      const trade = simulateTrade(symbol, variant, date, entryBar, futureBars, config);
       tradesByVariant[variant].push(trade);
     }
   }
