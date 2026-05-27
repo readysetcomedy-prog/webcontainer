@@ -22,6 +22,7 @@ import type {
   OrderType,
   TimeInForce,
 } from '../lib/alpaca';
+import BacktestPanel from './BacktestPanel';
 import CandleChart from './CandleChart';
 
 const ENV_KEY = 'gettrading.env';
@@ -997,6 +998,15 @@ export default function GetTradingPage() {
         onToggle={() => toggleCollapsed('orders')}
       >
         <OrdersTable orders={orders} onCancel={handleCancelOrder} />
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        wide
+        title="Backtester"
+        collapsed={collapsed.backtest === undefined ? true : !!collapsed.backtest}
+        onToggle={() => toggleCollapsed('backtest')}
+      >
+        <BacktestPanel env={env} symbols={watchlist} />
       </CollapsiblePanel>
 
       {showProfileEditor && (
