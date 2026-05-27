@@ -25,6 +25,36 @@ import type {
 import CandleChart from './CandleChart';
 
 const ENV_KEY = 'gettrading.env';
+const PROFILES_KEY = 'gettrading.profiles';
+const ACTIVE_PROFILE_KEY = 'gettrading.activeProfile';
+
+interface AccountProfile {
+  id: string;
+  name: string;
+  env: 'paper' | 'live';
+  // BYO keys for additional Alpaca accounts. When unset the proxy falls back
+  // to its server-configured ALPACA_PAPER_* / ALPACA_LIVE_* env vars (the
+  // "default" profile).
+  keyId?: string;
+  secret?: string;
+  // Used to display "From $X → $Y" deltas; doesn't change Alpaca's actual
+  // account balance.
+  startingCash?: number;
+  createdAt?: number;
+}
+
+const DEFAULT_PROFILE: AccountProfile = {
+  id: 'default-paper',
+  name: 'Default paper',
+  env: 'paper',
+};
+
+const DEFAULT_PROFILES: AccountProfile[] = [
+  DEFAULT_PROFILE,
+  { id: 'default-live', name: 'Default live', env: 'live' },
+];
+
+const DEFAULT_PROFILE_IDS = new Set(DEFAULT_PROFILES.map((p) => p.id));
 const WATCHLIST_KEY = 'gettrading.watchlist';
 const WATCHLIST_VERSION_KEY = 'gettrading.watchlistDefaultsVersion';
 // Bump this whenever DEFAULT_WATCHLIST gets new symbols so existing users
@@ -148,9 +178,35 @@ function readPct(key: string, fallback: number): number {
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
-function readEnv(): AlpacaEnv {
-  if (typeof window === 'undefined') return 'paper';
-  return localStorage.getItem(ENV_KEY) === 'live' ? 'live' : 'paper';
+function readProfiles(): AccountProfile[] {
+  if (typeof window === 'undefined') return DEFAULT_PROFILES;
+  try {
+    const raw = localStorage.getItem(PROFILES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as AccountProfile[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Ensure both built-in defaults are always present (so users can flip
+        // between server-keyed paper and live without re-adding them).
+        const present = new Set(parsed.map((p) => p.id));
+        const merged = [...parsed];
+        for (const dp of DEFAULT_PROFILES) {
+          if (!present.has(dp.id)) merged.push(dp);
+        }
+        return merged;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_PROFILES;
+}
+
+function readActiveProfileId(): string {
+  if (typeof window === 'undefined') return DEFAULT_PROFILE.id;
+  const stored = localStorage.getItem(ACTIVE_PROFILE_KEY);
+  if (stored) return stored;
+  // Migrate from legacy ENV_KEY-only setup.
+  return localStorage.getItem(ENV_KEY) === 'live' ? 'default-live' : DEFAULT_PROFILE.id;
 }
 
 function readWatchlist(): string[] {
@@ -232,7 +288,25 @@ function fmtNum(n: number | string | null | undefined, digits = 2) {
 }
 
 export default function GetTradingPage() {
-  const [env, setEnv] = useState<AlpacaEnv>(readEnv);
+  const [profiles, setProfiles] = useState<AccountProfile[]>(readProfiles);
+  const [activeProfileId, setActiveProfileId] = useState<string>(readActiveProfileId);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<AccountProfile | null>(null);
+  const activeProfile = useMemo(
+    () => profiles.find((p) => p.id === activeProfileId) ?? profiles[0] ?? DEFAULT_PROFILE,
+    [profiles, activeProfileId],
+  );
+  const env: AlpacaEnv = useMemo(
+    () =>
+      activeProfile.keyId && activeProfile.secret
+        ? {
+            env: activeProfile.env,
+            keyId: activeProfile.keyId,
+            secret: activeProfile.secret,
+          }
+        : activeProfile.env,
+    [activeProfile],
+  );
   const [account, setAccount] = useState<AlpacaAccount | null>(null);
   const [positions, setPositions] = useState<AlpacaPosition[]>([]);
   const [orders, setOrders] = useState<AlpacaOrder[]>([]);
@@ -260,8 +334,10 @@ export default function GetTradingPage() {
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(ENV_KEY, env);
-  }, [env]);
+    localStorage.setItem(ENV_KEY, activeProfile.env);
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+    localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
+  }, [activeProfile.env, profiles, activeProfileId]);
 
   useEffect(() => {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
@@ -587,6 +663,38 @@ export default function GetTradingPage() {
     [env, snapshots, defaultSlPct, defaultTpPct, notify, refreshAccountState],
   );
 
+  const saveProfile = useCallback(
+    (next: AccountProfile) => {
+      setProfiles((prev) => {
+        const existing = prev.findIndex((p) => p.id === next.id);
+        if (existing >= 0) {
+          const copy = [...prev];
+          copy[existing] = next;
+          return copy;
+        }
+        return [...prev, next];
+      });
+      setActiveProfileId(next.id);
+      setShowProfileEditor(false);
+      setEditingProfile(null);
+    },
+    [],
+  );
+
+  const deleteProfile = useCallback(
+    (id: string) => {
+      if (DEFAULT_PROFILE_IDS.has(id)) return;
+      if (!confirm('Delete this account profile? Local-only — Alpaca account is untouched.')) {
+        return;
+      }
+      setProfiles((prev) => prev.filter((p) => p.id !== id));
+      setActiveProfileId((cur) => (cur === id ? DEFAULT_PROFILE.id : cur));
+      setShowProfileEditor(false);
+      setEditingProfile(null);
+    },
+    [],
+  );
+
   const chartSnap = snapshots[selectedSymbol];
   const rangeCfg = RANGE_CONFIG[chartRange];
 
@@ -597,26 +705,51 @@ export default function GetTradingPage() {
           ← Editor
         </a>
         <h1 className="gt-title">GetTrading</h1>
-        <div className="gt-env-toggle" role="group" aria-label="Environment">
-          <button
-            className={env === 'paper' ? 'active' : ''}
-            onClick={() => setEnv('paper')}
+        <div className="gt-profile-picker">
+          <select
+            value={activeProfileId}
+            onChange={(e) => {
+              const next = profiles.find((p) => p.id === e.target.value);
+              if (
+                next?.env === 'live' &&
+                activeProfile.env !== 'live' &&
+                !confirm(
+                  `Switch to LIVE account "${next.name}"? Real money, real orders.`,
+                )
+              )
+                return;
+              setActiveProfileId(e.target.value);
+            }}
+            title="Active account"
+            className={activeProfile.env === 'live' ? 'gt-profile-live' : ''}
           >
-            Paper
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {p.env}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="gt-link"
+            onClick={() => {
+              setEditingProfile(null);
+              setShowProfileEditor(true);
+            }}
+            title="Add a new Alpaca account profile"
+          >
+            + add
           </button>
           <button
-            className={env === 'live' ? 'active live' : ''}
+            type="button"
+            className="gt-link"
             onClick={() => {
-              if (
-                confirm(
-                  'Switch to LIVE trading? Real money, real orders. Make sure your live keys are set in Supabase.',
-                )
-              ) {
-                setEnv('live');
-              }
+              setEditingProfile(activeProfile);
+              setShowProfileEditor(true);
             }}
+            title="Edit this profile"
           >
-            Live
+            edit
           </button>
         </div>
       </header>
@@ -647,6 +780,19 @@ export default function GetTradingPage() {
               : 'neg'
           }
         />
+        {activeProfile.startingCash && account ? (
+          <AccountStat
+            label={`vs $${activeProfile.startingCash.toLocaleString()} start`}
+            value={(() => {
+              const delta = parseFloat(account.equity) - activeProfile.startingCash;
+              const pct = (delta / activeProfile.startingCash) * 100;
+              return `${delta >= 0 ? '+' : ''}${fmtMoney(delta)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+            })()}
+            tone={
+              parseFloat(account.equity) - activeProfile.startingCash >= 0 ? 'pos' : 'neg'
+            }
+          />
+        ) : null}
         <AccountStat
           label="Status"
           value={account?.status ?? '—'}
@@ -852,6 +998,26 @@ export default function GetTradingPage() {
       >
         <OrdersTable orders={orders} onCancel={handleCancelOrder} />
       </CollapsiblePanel>
+
+      {showProfileEditor && (
+        <ProfileEditor
+          profile={editingProfile}
+          isDefault={
+            editingProfile ? DEFAULT_PROFILE_IDS.has(editingProfile.id) : false
+          }
+          existingIds={profiles.map((p) => p.id)}
+          onSave={saveProfile}
+          onDelete={
+            editingProfile && !DEFAULT_PROFILE_IDS.has(editingProfile.id)
+              ? () => deleteProfile(editingProfile.id)
+              : undefined
+          }
+          onCancel={() => {
+            setShowProfileEditor(false);
+            setEditingProfile(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1886,6 +2052,154 @@ function SymbolStrip({
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function ProfileEditor({
+  profile,
+  isDefault,
+  existingIds,
+  onSave,
+  onDelete,
+  onCancel,
+}: {
+  profile: AccountProfile | null;
+  isDefault: boolean;
+  existingIds: string[];
+  onSave: (p: AccountProfile) => void;
+  onDelete?: () => void;
+  onCancel: () => void;
+}) {
+  const isEdit = profile !== null;
+  const [name, setName] = useState(profile?.name ?? '');
+  const [env, setEnv] = useState<'paper' | 'live'>(profile?.env ?? 'paper');
+  const [keyId, setKeyId] = useState(profile?.keyId ?? '');
+  const [secret, setSecret] = useState(profile?.secret ?? '');
+  const [startingCash, setStartingCash] = useState(
+    profile?.startingCash ? String(profile.startingCash) : '',
+  );
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    const next: AccountProfile = {
+      id: profile?.id ?? `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      name: name.trim(),
+      env,
+      createdAt: profile?.createdAt ?? Date.now(),
+      ...(keyId.trim() && secret.trim()
+        ? { keyId: keyId.trim(), secret: secret.trim() }
+        : {}),
+      ...(startingCash && Number.isFinite(parseFloat(startingCash))
+        ? { startingCash: parseFloat(startingCash) }
+        : {}),
+    };
+    // Avoid id collisions if the user does something exotic.
+    if (!isEdit && existingIds.includes(next.id)) {
+      next.id = `${next.id}-${Math.random().toString(36).slice(2, 6)}`;
+    }
+    onSave(next);
+  }
+
+  return (
+    <div className="gt-modal-backdrop" onClick={onCancel}>
+      <div className="gt-modal" onClick={(e) => e.stopPropagation()}>
+        <form className="gt-modal-form" onSubmit={submit}>
+          <h3>{isEdit ? 'Edit account' : 'Add account'}</h3>
+          <label className="gt-field">
+            <span>Name</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Strategy A test"
+              autoFocus
+              required
+              disabled={isDefault}
+            />
+          </label>
+          <label className="gt-field">
+            <span>Environment</span>
+            <select
+              value={env}
+              onChange={(e) => setEnv(e.target.value as 'paper' | 'live')}
+              disabled={isDefault}
+            >
+              <option value="paper">Paper</option>
+              <option value="live">Live</option>
+            </select>
+          </label>
+          {!isDefault && (
+            <>
+              <label className="gt-field">
+                <span>
+                  Alpaca API Key ID
+                  <em className="gt-est">
+                    {' '}
+                    optional — leave blank to use default server keys
+                  </em>
+                </span>
+                <input
+                  type="text"
+                  value={keyId}
+                  onChange={(e) => setKeyId(e.target.value)}
+                  placeholder="PKxxx... (paper) or AKxxx... (live)"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="gt-field">
+                <span>Alpaca API Secret</span>
+                <input
+                  type="password"
+                  value={secret}
+                  onChange={(e) => setSecret(e.target.value)}
+                  placeholder="paste secret"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <div className="gt-note">
+                Keys are stored in your browser's localStorage. Anyone with access to
+                this browser profile can read them — only paste keys for accounts
+                you own.
+              </div>
+            </>
+          )}
+          <label className="gt-field">
+            <span>
+              Starting cash baseline <em className="gt-est">(optional)</em>
+            </span>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={startingCash}
+              onChange={(e) => setStartingCash(e.target.value)}
+              placeholder="e.g. 1000"
+            />
+            <div className="gt-note">
+              Just a display baseline for "From $X → $Y" tracking. Doesn't change
+              Alpaca's actual balance (paper starts at $100,000).
+            </div>
+          </label>
+          <div className="gt-modal-actions">
+            {onDelete && (
+              <button type="button" className="gt-btn gt-btn-danger" onClick={onDelete}>
+                Delete
+              </button>
+            )}
+            <div style={{ flex: 1 }} />
+            <button type="button" className="gt-btn" onClick={onCancel}>
+              Cancel
+            </button>
+            <button type="submit" className="gt-btn gt-btn-primary">
+              {isEdit ? 'Save' : 'Add account'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

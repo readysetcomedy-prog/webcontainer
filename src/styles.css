@@ -645,6 +645,105 @@ html, body, #root {
   color: var(--fg-dim);
 }
 
+.gt-profile-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.gt-profile-picker select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 180px;
+}
+
+.gt-profile-picker select.gt-profile-live {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.gt-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.gt-modal {
+  background: var(--bg-panel, #0f1419);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.gt-modal h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--fg);
+}
+
+.gt-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gt-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.gt-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.gt-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.gt-btn-primary {
+  background: var(--accent, #3b82f6);
+  border-color: var(--accent, #3b82f6);
+  color: #fff;
+  font-weight: 600;
+}
+
+.gt-btn-primary:hover {
+  background: #2563eb;
+}
+
+.gt-btn-danger {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.gt-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
 .gt-bracket.disabled {
   opacity: 0.55;
 }

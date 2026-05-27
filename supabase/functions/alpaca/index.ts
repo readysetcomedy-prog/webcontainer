@@ -16,7 +16,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, PATCH, PUT, OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, content-type, x-alpaca-env, x-alpaca-target, x-client-info, apikey",
+    "authorization, content-type, x-alpaca-env, x-alpaca-target, x-alpaca-key-id, x-alpaca-key-secret, x-client-info, apikey",
 };
 
 function json(obj: unknown, status = 200): Response {
@@ -43,12 +43,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const target = (req.headers.get("x-alpaca-target") ?? "trading").toLowerCase();
   const isPaper = env !== "live";
 
-  const keyId = isPaper
-    ? Deno.env.get("ALPACA_PAPER_KEY_ID")
-    : Deno.env.get("ALPACA_LIVE_KEY_ID");
-  const secret = isPaper
-    ? Deno.env.get("ALPACA_PAPER_SECRET")
-    : Deno.env.get("ALPACA_LIVE_SECRET");
+  // Client may supply per-profile keys directly; otherwise fall back to
+  // the server-configured defaults. This lets the app store multiple
+  // account profiles in the browser without re-deploying secrets.
+  const headerKeyId = req.headers.get("x-alpaca-key-id");
+  const headerSecret = req.headers.get("x-alpaca-key-secret");
+  const keyId =
+    headerKeyId ||
+    (isPaper
+      ? Deno.env.get("ALPACA_PAPER_KEY_ID")
+      : Deno.env.get("ALPACA_LIVE_KEY_ID"));
+  const secret =
+    headerSecret ||
+    (isPaper
+      ? Deno.env.get("ALPACA_PAPER_SECRET")
+      : Deno.env.get("ALPACA_LIVE_SECRET"));
 
   if (!keyId || !secret) {
     return json(

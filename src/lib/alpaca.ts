@@ -11,7 +11,22 @@ const FN_URL = (
   `${SUPABASE_URL}/functions/v1/alpaca`
 ).replace(/\/$/, '');
 
-export type AlpacaEnv = 'paper' | 'live';
+export type AlpacaEnvName = 'paper' | 'live';
+
+// Backwards-compatible: AlpacaEnv can be a plain string ('paper' | 'live') for
+// the default profile (proxy uses server-configured secrets), or an object
+// carrying per-profile keys for additional accounts.
+export type AlpacaEnv =
+  | AlpacaEnvName
+  | { env: AlpacaEnvName; keyId?: string; secret?: string };
+
+function envName(e: AlpacaEnv): AlpacaEnvName {
+  return typeof e === 'string' ? e : e.env;
+}
+
+function envKeys(e: AlpacaEnv): { keyId?: string; secret?: string } {
+  return typeof e === 'string' ? {} : { keyId: e.keyId, secret: e.secret };
+}
 
 export interface AlpacaAccount {
   id: string;
@@ -145,9 +160,14 @@ async function call<T>(
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     apikey: SUPABASE_ANON_KEY,
-    'x-alpaca-env': env,
+    'x-alpaca-env': envName(env),
     'x-alpaca-target': target,
   };
+  const { keyId, secret } = envKeys(env);
+  if (keyId && secret) {
+    headers['x-alpaca-key-id'] = keyId;
+    headers['x-alpaca-key-secret'] = secret;
+  }
   if (body !== undefined) headers['content-type'] = 'application/json';
   const res = await fetch(`${FN_URL}/${path}`, {
     method,
