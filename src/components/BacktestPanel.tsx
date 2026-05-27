@@ -38,7 +38,10 @@ export default function BacktestPanel({
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [periodMode, setPeriodMode] = useState<'lookback' | 'range'>('lookback');
   const [lookbackDays, setLookbackDays] = useState(120);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [stopLossPct, setStopLossPct] = useState(5);
   const [takeProfitPct, setTakeProfitPct] = useState(3);
   const [entryHour, setEntryHour] = useState(11);
@@ -69,9 +72,21 @@ export default function BacktestPanel({
       setError('Watchlist is empty.');
       return;
     }
+    if (periodMode === 'range') {
+      if (!startDate || !endDate) {
+        setError('Pick both From and To dates, or switch to "Last N days".');
+        return;
+      }
+      if (startDate >= endDate) {
+        setError('From must be before To.');
+        return;
+      }
+    }
     const config: BacktestConfig = {
       symbols,
-      lookbackDays,
+      ...(periodMode === 'lookback'
+        ? { lookbackDays }
+        : { startDate, endDate }),
       entryHourET: entryHour,
       entryMinuteET: 0,
       exitHourET: exitHour,
@@ -100,17 +115,60 @@ export default function BacktestPanel({
 
   return (
     <div className="gt-backtest">
+      <div className="gt-backtest-period">
+        <div className="gt-side-toggle" role="group">
+          <button
+            type="button"
+            className={periodMode === 'lookback' ? 'active' : ''}
+            onClick={() => setPeriodMode('lookback')}
+          >
+            Last N days
+          </button>
+          <button
+            type="button"
+            className={periodMode === 'range' ? 'active' : ''}
+            onClick={() => setPeriodMode('range')}
+          >
+            Date range
+          </button>
+        </div>
+        {periodMode === 'lookback' ? (
+          <label className="gt-field gt-inline-field">
+            <span>Lookback (days)</span>
+            <input
+              type="number"
+              min="5"
+              max="365"
+              value={lookbackDays}
+              onChange={(e) => setLookbackDays(parseInt(e.target.value, 10) || 0)}
+            />
+          </label>
+        ) : (
+          <>
+            <label className="gt-field gt-inline-field">
+              <span>From</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </label>
+            <label className="gt-field gt-inline-field">
+              <span>To</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </label>
+            <span className="gt-muted">
+              Tip: try monthly chunks (e.g. Feb, Mar, Apr) to spot regime
+              changes.
+            </span>
+          </>
+        )}
+      </div>
       <div className="gt-backtest-controls">
-        <label className="gt-field">
-          <span>Lookback (days)</span>
-          <input
-            type="number"
-            min="5"
-            max="365"
-            value={lookbackDays}
-            onChange={(e) => setLookbackDays(parseInt(e.target.value, 10) || 0)}
-          />
-        </label>
         <label className="gt-field">
           <span>Entry ET (hour)</span>
           <input
@@ -221,7 +279,8 @@ export default function BacktestPanel({
         )}
         {result && !running && (
           <span className="gt-muted">
-            Done in {(result.durationMs / 1000).toFixed(1)}s,{' '}
+            {result.period.startDate} → {result.period.endDate} ·{' '}
+            {(result.durationMs / 1000).toFixed(1)}s,{' '}
             {result.symbolsProcessed} symbols
             {Object.keys(result.symbolErrors).length > 0
               ? ` (${Object.keys(result.symbolErrors).length} fetch errors)`

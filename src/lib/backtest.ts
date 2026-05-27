@@ -1,4 +1,4 @@
-import { getBars, AlpacaBar, AlpacaEnv } from './alpaca';
+import { getBars, getBarsRange, AlpacaBar, AlpacaEnv } from './alpaca';
 
 // Returns the ET (America/New_York) calendar date and wall-clock h/m for a UTC
 // timestamp. Used for filtering bars to specific times-of-day relative to the
@@ -33,7 +33,12 @@ export const VARIANT_LABELS: Record<BacktestVariant, string> = {
 
 export interface BacktestConfig {
   symbols: string[];
-  lookbackDays: number;
+  // Period — provide either lookbackDays (trailing) or startDate+endDate
+  // (absolute). startDate / endDate are YYYY-MM-DD in ET. If both lookback and
+  // range are present, range wins.
+  lookbackDays?: number;
+  startDate?: string;
+  endDate?: string;
   entryHourET: number;
   entryMinuteET: number;
   exitHourET: number;
@@ -45,6 +50,12 @@ export interface BacktestConfig {
   upPct: number;
   volMultiple: number;
   orbStartMinutes: number;
+}
+
+export interface BacktestPeriod {
+  startDate: string;
+  endDate: string;
+  source: 'range' | 'lookback';
 }
 
 export interface BacktestTrade {
@@ -80,10 +91,38 @@ export interface BacktestVariantResult {
 
 export interface BacktestResult {
   config: BacktestConfig;
+  period: BacktestPeriod;
   variants: BacktestVariantResult[];
   symbolErrors: Record<string, string>;
   symbolsProcessed: number;
   durationMs: number;
+}
+
+function isoDateAddDays(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function resolvePeriod(config: BacktestConfig): BacktestPeriod {
+  if (config.startDate && config.endDate) {
+    return { startDate: config.startDate, endDate: config.endDate, source: 'range' };
+  }
+  if (config.startDate) {
+    return {
+      startDate: config.startDate,
+      endDate: todayIsoDate(),
+      source: 'range',
+    };
+  }
+  const lookback = config.lookbackDays ?? 90;
+  const endDate = todayIsoDate();
+  const startDate = isoDateAddDays(endDate, -lookback);
+  return { startDate, endDate, source: 'lookback' };
 }
 
 // Find the bar whose ET wall-clock matches the given hour:minute exactly. With
@@ -236,16 +275,26 @@ export async function runBacktest(
   };
   let symbolsProcessed = 0;
   const total = config.symbols.length;
+  const period = resolvePeriod(config);
 
-  // Fetch + simulate per symbol in chunks. Chunked to keep concurrency under
-  // Alpaca's rate limits while not serializing everything.
+  // Fetch bars across the resolved [startDate, endDate] window. Use getBarsRange
+  // for both modes — lookback mode just resolves to a trailing range — so the
+  // engine has one code path. Suppress 'getBars' unused warning if applicable.
+  void getBars;
+
   const CONCURRENCY = 3;
   for (let i = 0; i < config.symbols.length; i += CONCURRENCY) {
     const chunk = config.symbols.slice(i, i + CONCURRENCY);
     await Promise.all(
       chunk.map(async (sym) => {
         try {
-          const bars = await getBars(env, sym, '5Min', config.lookbackDays);
+          const bars = await getBarsRange(
+            env,
+            sym,
+            '5Min',
+            period.startDate,
+            period.endDate,
+          );
           processSymbol(sym, bars, config, tradesByVariant);
         } catch (e) {
           errors[sym] = (e as Error).message;
@@ -263,6 +312,7 @@ export async function runBacktest(
 
   return {
     config,
+    period,
     variants,
     symbolErrors: errors,
     symbolsProcessed,

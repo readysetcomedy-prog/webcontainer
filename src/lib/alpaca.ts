@@ -372,3 +372,32 @@ export async function getBars(
     volume: b.v,
   }));
 }
+
+// Same as getBars but with an explicit start..end window. Lets the backtester
+// test arbitrary historical periods (e.g. "Q1 2025") rather than only
+// trailing-N-days from now.
+export async function getBarsRange(
+  env: AlpacaEnv,
+  symbol: string,
+  timeframe: AlpacaTimeframe,
+  startDate: string,
+  endDate: string,
+  limit = 10000,
+) {
+  const sym = symbol.trim().toUpperCase();
+  if (!sym) return [] as AlpacaBar[];
+  const res = await call<{ bars: RawBar[] | null }>(
+    env,
+    'data',
+    'GET',
+    `v2/stocks/${encodeURIComponent(sym)}/bars?timeframe=${timeframe}&start=${startDate}&end=${endDate}&limit=${limit}&adjustment=split`,
+  );
+  return (res.bars ?? []).map<AlpacaBar>((b) => ({
+    time: b.t,
+    open: b.o,
+    high: b.h,
+    low: b.l,
+    close: b.c,
+    volume: b.v,
+  }));
+}
