@@ -212,6 +212,10 @@ export function placeOrder(env: AlpacaEnv, input: PlaceOrderInput) {
   return call<AlpacaOrder>(env, 'trading', 'POST', 'v2/orders', input);
 }
 
+export function getOrder(env: AlpacaEnv, orderId: string) {
+  return call<AlpacaOrder>(env, 'trading', 'GET', `v2/orders/${orderId}`);
+}
+
 export function cancelOrder(env: AlpacaEnv, orderId: string) {
   return call<void>(env, 'trading', 'DELETE', `v2/orders/${orderId}`);
 }

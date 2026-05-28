@@ -5,6 +5,7 @@ import {
   getClock,
   getAccount,
   getBars,
+  getOrder,
   getSnapshots,
   listOrders,
   listPositions,
@@ -555,6 +556,156 @@ export default function GetTradingPage() {
     async (input: Parameters<typeof placeOrder>[1]) => {
       setBusy(true);
       try {
+        // Fill-relative SL/TP: if this is a market order with SL or TP
+        // attached, the user wants the protective levels measured from the
+        // actual fill price (avoids "I asked for $5 below entry but slippage
+        // made it $4.80"). Bracket / OTO over-the-wire uses absolute prices
+        // computed from a stale snapshot, so we split the request:
+        //   1. Submit the primary alone, capturing the SL/TP DISTANCES from
+        //      the (snapshot, typed-price) pair.
+        //   2. Poll until the primary fills.
+        //   3. Submit a separate OCO/SL/TP on the position with prices
+        //      recomputed from filled_avg_price using those distances.
+        // Limit orders skip this — the limit price already pins the expected
+        // fill, so distances measured pre-submit are equivalent.
+        const hasBracketIntent =
+          (input.order_class === 'bracket' || input.order_class === 'oto') &&
+          (input.stop_loss || input.take_profit);
+        const isMarket = input.type === 'market';
+        const snap = snapshots[input.symbol];
+        if (hasBracketIntent && isMarket && snap?.last) {
+          const isLong = input.side === 'buy';
+          const refPrice = snap.last;
+          const slPriceIn = input.stop_loss?.stop_price;
+          const tpPriceIn = input.take_profit?.limit_price;
+          const slDistance =
+            typeof slPriceIn === 'number'
+              ? isLong
+                ? refPrice - slPriceIn
+                : slPriceIn - refPrice
+              : null;
+          const tpDistance =
+            typeof tpPriceIn === 'number'
+              ? isLong
+                ? tpPriceIn - refPrice
+                : refPrice - tpPriceIn
+              : null;
+
+          // Strip bracket fields from the primary.
+          const primaryInput = {
+            ...input,
+            order_class: undefined,
+            stop_loss: undefined,
+            take_profit: undefined,
+          };
+          const primary = await placeOrder(env, primaryInput);
+          notify(
+            'ok',
+            `${primary.side.toUpperCase()} ${primary.qty ?? ''} ${primary.symbol} submitted, waiting for fill…`,
+          );
+
+          // Poll until filled (or terminal). Max ~15s — market orders
+          // typically fill in <1s during regular hours.
+          const terminalBad = new Set(['canceled', 'rejected', 'expired', 'suspended']);
+          let order = primary;
+          const deadline = Date.now() + 15_000;
+          while (Date.now() < deadline) {
+            if (order.status === 'filled' || order.status === 'partially_filled') break;
+            if (terminalBad.has(order.status)) {
+              throw new Error(`Primary order ${order.status} — SL/TP not attached.`);
+            }
+            await new Promise((r) => setTimeout(r, 500));
+            order = await getOrder(env, primary.id);
+          }
+          if (order.status !== 'filled' && order.status !== 'partially_filled') {
+            notify(
+              'err',
+              `${primary.symbol} still ${order.status} after 15s — SL/TP not attached. Set them on the position once it fills.`,
+            );
+            await refreshAccountState();
+            return;
+          }
+
+          const fillPrice = parseFloat(order.filled_avg_price ?? '0');
+          const filledQty = parseFloat(order.filled_qty);
+          if (!Number.isFinite(fillPrice) || fillPrice <= 0 || !Number.isFinite(filledQty) || filledQty <= 0) {
+            notify('err', 'No fill price/qty available — SL/TP not attached.');
+            await refreshAccountState();
+            return;
+          }
+
+          const slFinal =
+            slDistance !== null && slDistance > 0
+              ? isLong
+                ? fillPrice - slDistance
+                : fillPrice + slDistance
+              : null;
+          const tpFinal =
+            tpDistance !== null && tpDistance > 0
+              ? isLong
+                ? fillPrice + tpDistance
+                : fillPrice - tpDistance
+              : null;
+
+          const closeSide = isLong ? ('sell' as const) : ('buy' as const);
+          try {
+            if (slFinal !== null && tpFinal !== null) {
+              await placeOrder(env, {
+                symbol: input.symbol,
+                qty: filledQty,
+                side: closeSide,
+                type: 'limit',
+                time_in_force: 'gtc',
+                limit_price: tpFinal,
+                order_class: 'oco',
+                take_profit: { limit_price: tpFinal },
+                stop_loss: { stop_price: slFinal },
+              });
+              notify(
+                'ok',
+                `${input.symbol} filled at ${fmtMoney(fillPrice)} — SL ${fmtMoney(slFinal)} / TP ${fmtMoney(tpFinal)} attached`,
+              );
+            } else if (slFinal !== null) {
+              await placeOrder(env, {
+                symbol: input.symbol,
+                qty: filledQty,
+                side: closeSide,
+                type: 'stop',
+                time_in_force: 'gtc',
+                stop_price: slFinal,
+              });
+              notify(
+                'ok',
+                `${input.symbol} filled at ${fmtMoney(fillPrice)} — SL ${fmtMoney(slFinal)} attached`,
+              );
+            } else if (tpFinal !== null) {
+              await placeOrder(env, {
+                symbol: input.symbol,
+                qty: filledQty,
+                side: closeSide,
+                type: 'limit',
+                time_in_force: 'gtc',
+                limit_price: tpFinal,
+              });
+              notify(
+                'ok',
+                `${input.symbol} filled at ${fmtMoney(fillPrice)} — TP ${fmtMoney(tpFinal)} attached`,
+              );
+            }
+          } catch (attachErr) {
+            notify(
+              'err',
+              `${input.symbol} filled at ${fmtMoney(fillPrice)} BUT SL/TP attach failed: ${(attachErr as Error).message}. Set them manually on the position.`,
+            );
+          }
+          await refreshAccountState();
+          await refreshSnapshots();
+          return;
+        }
+
+        // Default path: limit orders, simple market orders, anything without
+        // SL/TP intent. Goes straight through as a single bracket / simple
+        // request.
         const o = await placeOrder(env, input);
         notify(
           'ok',
@@ -568,7 +719,7 @@ export default function GetTradingPage() {
         setBusy(false);
       }
     },
-    [env, notify, refreshAccountState, refreshSnapshots],
+    [env, notify, refreshAccountState, refreshSnapshots, snapshots],
   );
 
   const handleCancelOrder = useCallback(
@@ -1509,20 +1660,24 @@ function OrderEntry({
                 if (Number.isFinite(v) && v > 0) onChangeDefaultSlPct(v);
               }}
             />
-            <button
-              type="button"
-              className="gt-unit-toggle"
-              onClick={() =>
-                onChangeDefaultSlUnit(defaultSlUnit === 'pct' ? 'usd' : 'pct')
-              }
-              title={
-                defaultSlUnit === 'pct'
-                  ? '% of price — click for $ per share'
-                  : '$ per share — click for %'
-              }
-            >
-              {defaultSlUnit === 'pct' ? '%' : '$'}
-            </button>
+            <div className="gt-qty-mode" role="group">
+              <button
+                type="button"
+                className={defaultSlUnit === 'pct' ? 'active' : ''}
+                onClick={() => onChangeDefaultSlUnit('pct')}
+                title="% from entry price"
+              >
+                %
+              </button>
+              <button
+                type="button"
+                className={defaultSlUnit === 'usd' ? 'active' : ''}
+                onClick={() => onChangeDefaultSlUnit('usd')}
+                title="$ per share — flat dollar offset (e.g. 0.50 = $0.50 below entry)"
+              >
+                $
+              </button>
+            </div>
           </label>
           <label>
             TP
@@ -1535,20 +1690,24 @@ function OrderEntry({
                 if (Number.isFinite(v) && v > 0) onChangeDefaultTpPct(v);
               }}
             />
-            <button
-              type="button"
-              className="gt-unit-toggle"
-              onClick={() =>
-                onChangeDefaultTpUnit(defaultTpUnit === 'pct' ? 'usd' : 'pct')
-              }
-              title={
-                defaultTpUnit === 'pct'
-                  ? '% of price — click for $ per share'
-                  : '$ per share — click for %'
-              }
-            >
-              {defaultTpUnit === 'pct' ? '%' : '$'}
-            </button>
+            <div className="gt-qty-mode" role="group">
+              <button
+                type="button"
+                className={defaultTpUnit === 'pct' ? 'active' : ''}
+                onClick={() => onChangeDefaultTpUnit('pct')}
+                title="% from entry price"
+              >
+                %
+              </button>
+              <button
+                type="button"
+                className={defaultTpUnit === 'usd' ? 'active' : ''}
+                onClick={() => onChangeDefaultTpUnit('usd')}
+                title="$ per share — flat dollar offset (e.g. 0.50 = $0.50 above entry)"
+              >
+                $
+              </button>
+            </div>
           </label>
           <button
             type="button"

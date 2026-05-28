@@ -210,7 +210,7 @@ export default function BacktestPanel({
           </div>
         </label>
         <label className="gt-field">
-          <span>Stop loss {stopLossUnit === 'pct' ? '%' : '$'}</span>
+          <span>Stop loss {stopLossUnit === 'pct' ? '%' : '$/sh'}</span>
           <div className="gt-qty-row">
             <input
               type="number"
@@ -219,24 +219,28 @@ export default function BacktestPanel({
               value={stopLossPct}
               onChange={(e) => setStopLossPct(parseFloat(e.target.value) || 5)}
             />
-            <button
-              type="button"
-              className="gt-unit-toggle"
-              onClick={() =>
-                setStopLossUnit(stopLossUnit === 'pct' ? 'usd' : 'pct')
-              }
-              title={
-                stopLossUnit === 'pct'
-                  ? '% from entry — click for $ per share'
-                  : '$ per share — click for %'
-              }
-            >
-              {stopLossUnit === 'pct' ? '%' : '$'}
-            </button>
+            <div className="gt-qty-mode" role="group">
+              <button
+                type="button"
+                className={stopLossUnit === 'pct' ? 'active' : ''}
+                onClick={() => setStopLossUnit('pct')}
+                title="% from entry"
+              >
+                %
+              </button>
+              <button
+                type="button"
+                className={stopLossUnit === 'usd' ? 'active' : ''}
+                onClick={() => setStopLossUnit('usd')}
+                title="$ per share — flat offset from entry"
+              >
+                $
+              </button>
+            </div>
           </div>
         </label>
         <label className="gt-field">
-          <span>Take profit {takeProfitUnit === 'pct' ? '%' : '$'}</span>
+          <span>Take profit {takeProfitUnit === 'pct' ? '%' : '$/sh'}</span>
           <div className="gt-qty-row">
             <input
               type="number"
@@ -245,20 +249,24 @@ export default function BacktestPanel({
               value={takeProfitPct}
               onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 3)}
             />
-            <button
-              type="button"
-              className="gt-unit-toggle"
-              onClick={() =>
-                setTakeProfitUnit(takeProfitUnit === 'pct' ? 'usd' : 'pct')
-              }
-              title={
-                takeProfitUnit === 'pct'
-                  ? '% from entry — click for $ per share'
-                  : '$ per share — click for %'
-              }
-            >
-              {takeProfitUnit === 'pct' ? '%' : '$'}
-            </button>
+            <div className="gt-qty-mode" role="group">
+              <button
+                type="button"
+                className={takeProfitUnit === 'pct' ? 'active' : ''}
+                onClick={() => setTakeProfitUnit('pct')}
+                title="% from entry"
+              >
+                %
+              </button>
+              <button
+                type="button"
+                className={takeProfitUnit === 'usd' ? 'active' : ''}
+                onClick={() => setTakeProfitUnit('usd')}
+                title="$ per share — flat offset from entry"
+              >
+                $
+              </button>
+            </div>
           </div>
         </label>
         <label className="gt-field">
