@@ -110,14 +110,16 @@ const DEFAULT_WATCHLIST = [
 
 const MAX_WATCHLIST = 150;
 
-type ChartRange = '1D' | '5D' | '1H' | '1Mo' | '1Y' | '5Y';
+type ChartRange = '1m' | '5m' | '1D' | '5D' | '1H' | '1Mo' | '1Y' | '5Y';
 
-const RANGE_ORDER: ChartRange[] = ['1D', '5D', '1H', '1Mo', '1Y', '5Y'];
+const RANGE_ORDER: ChartRange[] = ['1m', '5m', '1D', '5D', '1H', '1Mo', '1Y', '5Y'];
 
 const RANGE_CONFIG: Record<
   ChartRange,
   { timeframe: AlpacaTimeframe; lookbackDays: number; intraday: boolean; label: string }
 > = {
+  '1m': { timeframe: '1Min', lookbackDays: 1, intraday: true, label: '1-min bars · today' },
+  '5m': { timeframe: '5Min', lookbackDays: 1, intraday: true, label: '5-min bars · today' },
   '1D': { timeframe: '5Min', lookbackDays: 2, intraday: true, label: '1 day (5-min bars)' },
   '5D': { timeframe: '15Min', lookbackDays: 8, intraday: true, label: '5 days (15-min bars)' },
   '1H': { timeframe: '1Hour', lookbackDays: 30, intraday: true, label: '1-hour bars · 30 days' },
