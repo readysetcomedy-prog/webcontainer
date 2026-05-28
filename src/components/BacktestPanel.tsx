@@ -5,6 +5,7 @@ import {
   BacktestResult,
   BacktestTrade,
   BacktestVariant,
+  SlTpUnit,
   VARIANT_LABELS,
   runBacktest,
 } from '../lib/backtest';
@@ -44,6 +45,8 @@ export default function BacktestPanel({
   const [endDate, setEndDate] = useState('');
   const [stopLossPct, setStopLossPct] = useState(5);
   const [takeProfitPct, setTakeProfitPct] = useState(3);
+  const [stopLossUnit, setStopLossUnit] = useState<SlTpUnit>('pct');
+  const [takeProfitUnit, setTakeProfitUnit] = useState<SlTpUnit>('pct');
   const [entryHour, setEntryHour] = useState(11);
   const [exitHour, setExitHour] = useState(15);
   const [exitMinute, setExitMinute] = useState(45);
@@ -93,8 +96,12 @@ export default function BacktestPanel({
       entryMinuteET: 0,
       exitHourET: exitHour,
       exitMinuteET: exitMinute,
-      stopLossPct: stopLossPct / 100,
-      takeProfitPct: takeProfitPct / 100,
+      // pct mode is stored as a percent (5 = 5%); the engine wants the decimal
+      // distance (0.05). usd mode is a flat per-share offset and passes through.
+      stopLossPct: stopLossUnit === 'pct' ? stopLossPct / 100 : stopLossPct,
+      takeProfitPct: takeProfitUnit === 'pct' ? takeProfitPct / 100 : takeProfitPct,
+      stopLossUnit,
+      takeProfitUnit,
       positionSize,
       variants,
       upPct: upPct / 100,
@@ -203,24 +210,56 @@ export default function BacktestPanel({
           </div>
         </label>
         <label className="gt-field">
-          <span>Stop loss %</span>
-          <input
-            type="number"
-            step="0.5"
-            min="0.5"
-            value={stopLossPct}
-            onChange={(e) => setStopLossPct(parseFloat(e.target.value) || 5)}
-          />
+          <span>Stop loss {stopLossUnit === 'pct' ? '%' : '$'}</span>
+          <div className="gt-qty-row">
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={stopLossPct}
+              onChange={(e) => setStopLossPct(parseFloat(e.target.value) || 5)}
+            />
+            <button
+              type="button"
+              className="gt-unit-toggle"
+              onClick={() =>
+                setStopLossUnit(stopLossUnit === 'pct' ? 'usd' : 'pct')
+              }
+              title={
+                stopLossUnit === 'pct'
+                  ? '% from entry — click for $ per share'
+                  : '$ per share — click for %'
+              }
+            >
+              {stopLossUnit === 'pct' ? '%' : '$'}
+            </button>
+          </div>
         </label>
         <label className="gt-field">
-          <span>Take profit %</span>
-          <input
-            type="number"
-            step="0.5"
-            min="0.5"
-            value={takeProfitPct}
-            onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 3)}
-          />
+          <span>Take profit {takeProfitUnit === 'pct' ? '%' : '$'}</span>
+          <div className="gt-qty-row">
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={takeProfitPct}
+              onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 3)}
+            />
+            <button
+              type="button"
+              className="gt-unit-toggle"
+              onClick={() =>
+                setTakeProfitUnit(takeProfitUnit === 'pct' ? 'usd' : 'pct')
+              }
+              title={
+                takeProfitUnit === 'pct'
+                  ? '% from entry — click for $ per share'
+                  : '$ per share — click for %'
+              }
+            >
+              {takeProfitUnit === 'pct' ? '%' : '$'}
+            </button>
+          </div>
         </label>
         <label className="gt-field">
           <span>Position $</span>

@@ -130,6 +130,29 @@ const RANGE_CONFIG: Record<
 
 const SL_PCT_KEY = 'gettrading.defaultStopLossPct';
 const TP_PCT_KEY = 'gettrading.defaultTakeProfitPct';
+const SL_UNIT_KEY = 'gettrading.defaultStopLossUnit';
+const TP_UNIT_KEY = 'gettrading.defaultTakeProfitUnit';
+
+export type SlTpUnit = 'pct' | 'usd';
+
+// Resolve a default SL/TP "distance" — interpreted as either a percent of the
+// last price or a flat dollars-per-share offset — into an absolute price for
+// the given side. Long-side SL goes *below* last; short-side SL goes above.
+export function slTpFromDefault(
+  last: number,
+  isLong: boolean,
+  slValue: number,
+  slUnit: SlTpUnit,
+  tpValue: number,
+  tpUnit: SlTpUnit,
+) {
+  const slOffset = slUnit === 'pct' ? last * (slValue / 100) : slValue;
+  const tpOffset = tpUnit === 'pct' ? last * (tpValue / 100) : tpValue;
+  return {
+    sl: isLong ? last - slOffset : last + slOffset,
+    tp: isLong ? last + tpOffset : last - tpOffset,
+  };
+}
 const SIGNAL_SETTINGS_KEY = 'gettrading.signalSettings';
 const SIGNAL_NOTIFY_KEY = 'gettrading.signalNotify';
 const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
@@ -321,6 +344,12 @@ export default function GetTradingPage() {
   const [chartRange, setChartRange] = useState<ChartRange>(readChartRange);
   const [defaultSlPct, setDefaultSlPct] = useState<number>(() => readPct(SL_PCT_KEY, 5));
   const [defaultTpPct, setDefaultTpPct] = useState<number>(() => readPct(TP_PCT_KEY, 10));
+  const [defaultSlUnit, setDefaultSlUnit] = useState<SlTpUnit>(() =>
+    (typeof window !== 'undefined' && localStorage.getItem(SL_UNIT_KEY)) === 'usd' ? 'usd' : 'pct',
+  );
+  const [defaultTpUnit, setDefaultTpUnit] = useState<SlTpUnit>(() =>
+    (typeof window !== 'undefined' && localStorage.getItem(TP_UNIT_KEY)) === 'usd' ? 'usd' : 'pct',
+  );
   const [signalSettings, setSignalSettings] = useState<SignalSettings>(readSignalSettings);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [notifyEnabled, setNotifyEnabled] = useState<boolean>(() =>
@@ -361,6 +390,14 @@ export default function GetTradingPage() {
   useEffect(() => {
     localStorage.setItem(TP_PCT_KEY, String(defaultTpPct));
   }, [defaultTpPct]);
+
+  useEffect(() => {
+    localStorage.setItem(SL_UNIT_KEY, defaultSlUnit);
+  }, [defaultSlUnit]);
+
+  useEffect(() => {
+    localStorage.setItem(TP_UNIT_KEY, defaultTpUnit);
+  }, [defaultTpUnit]);
 
   useEffect(() => {
     localStorage.setItem(SIGNAL_SETTINGS_KEY, JSON.stringify(signalSettings));
@@ -630,8 +667,16 @@ export default function GetTradingPage() {
       const snap = snapshots[p.symbol];
       const last = snap?.last ?? parseFloat(p.current_price);
       const isLong = p.side === 'long';
-      const slDefault = (last * (isLong ? 1 - defaultSlPct / 100 : 1 + defaultSlPct / 100)).toFixed(2);
-      const tpDefault = (last * (isLong ? 1 + defaultTpPct / 100 : 1 - defaultTpPct / 100)).toFixed(2);
+      const { sl: slNum, tp: tpNum } = slTpFromDefault(
+        last,
+        isLong,
+        defaultSlPct,
+        defaultSlUnit,
+        defaultTpPct,
+        defaultTpUnit,
+      );
+      const slDefault = slNum.toFixed(2);
+      const tpDefault = tpNum.toFixed(2);
       const slStr = prompt(
         `Stop loss for ${p.symbol} (${p.side}, last ${fmtMoney(last)}):`,
         slDefault,
@@ -817,6 +862,10 @@ export default function GetTradingPage() {
             positions={positions}
             buyingPower={parseFloat(account?.buying_power ?? '0') || 0}
             defaultSlPct={defaultSlPct}
+            defaultSlUnit={defaultSlUnit}
+            defaultTpUnit={defaultTpUnit}
+            onChangeDefaultSlUnit={setDefaultSlUnit}
+            onChangeDefaultTpUnit={setDefaultTpUnit}
             defaultTpPct={defaultTpPct}
             onChangeDefaultSlPct={setDefaultSlPct}
             onChangeDefaultTpPct={setDefaultTpPct}
@@ -1095,8 +1144,12 @@ function OrderEntry({
   buyingPower,
   defaultSlPct,
   defaultTpPct,
+  defaultSlUnit,
+  defaultTpUnit,
   onChangeDefaultSlPct,
   onChangeDefaultTpPct,
+  onChangeDefaultSlUnit,
+  onChangeDefaultTpUnit,
   onSubmit,
 }: {
   busy: boolean;
@@ -1106,8 +1159,12 @@ function OrderEntry({
   buyingPower: number;
   defaultSlPct: number;
   defaultTpPct: number;
+  defaultSlUnit: SlTpUnit;
+  defaultTpUnit: SlTpUnit;
   onChangeDefaultSlPct: (n: number) => void;
   onChangeDefaultTpPct: (n: number) => void;
+  onChangeDefaultSlUnit: (u: SlTpUnit) => void;
+  onChangeDefaultTpUnit: (u: SlTpUnit) => void;
   onSubmit: (input: import('../lib/alpaca').PlaceOrderInput) => void;
 }) {
   const [symbol, setSymbol] = useState(externalSymbol);
@@ -1132,24 +1189,36 @@ function OrderEntry({
   const snap = snapshots[sym];
 
   // When we first get a price for the current (symbol, side) combo, compute
-  // SL/TP from the user's default percentages. Skip after that so live ticks
-  // don't overwrite the user's edits.
+  // SL/TP from the user's default percentages OR per-share $ offsets. Skip
+  // after that so live ticks don't overwrite the user's edits.
   useEffect(() => {
     const key = `${sym}|${side}`;
     if (!sym || !snap?.last || computedForRef.current === key) return;
-    const slMul = side === 'buy' ? 1 - defaultSlPct / 100 : 1 + defaultSlPct / 100;
-    const tpMul = side === 'buy' ? 1 + defaultTpPct / 100 : 1 - defaultTpPct / 100;
-    setStopPrice((snap.last * slMul).toFixed(2));
-    setTakePrice((snap.last * tpMul).toFixed(2));
+    const { sl, tp } = slTpFromDefault(
+      snap.last,
+      side === 'buy',
+      defaultSlPct,
+      defaultSlUnit,
+      defaultTpPct,
+      defaultTpUnit,
+    );
+    setStopPrice(sl.toFixed(2));
+    setTakePrice(tp.toFixed(2));
     computedForRef.current = key;
-  }, [sym, side, snap?.last, defaultSlPct, defaultTpPct]);
+  }, [sym, side, snap?.last, defaultSlPct, defaultTpPct, defaultSlUnit, defaultTpUnit]);
 
   function recomputeFromDefaults() {
     if (!snap?.last) return;
-    const slMul = side === 'buy' ? 1 - defaultSlPct / 100 : 1 + defaultSlPct / 100;
-    const tpMul = side === 'buy' ? 1 + defaultTpPct / 100 : 1 - defaultTpPct / 100;
-    setStopPrice((snap.last * slMul).toFixed(2));
-    setTakePrice((snap.last * tpMul).toFixed(2));
+    const { sl, tp } = slTpFromDefault(
+      snap.last,
+      side === 'buy',
+      defaultSlPct,
+      defaultSlUnit,
+      defaultTpPct,
+      defaultTpUnit,
+    );
+    setStopPrice(sl.toFixed(2));
+    setTakePrice(tp.toFixed(2));
   }
 
   function submit(e: React.FormEvent) {
@@ -1440,7 +1509,20 @@ function OrderEntry({
                 if (Number.isFinite(v) && v > 0) onChangeDefaultSlPct(v);
               }}
             />
-            %
+            <button
+              type="button"
+              className="gt-unit-toggle"
+              onClick={() =>
+                onChangeDefaultSlUnit(defaultSlUnit === 'pct' ? 'usd' : 'pct')
+              }
+              title={
+                defaultSlUnit === 'pct'
+                  ? '% of price — click for $ per share'
+                  : '$ per share — click for %'
+              }
+            >
+              {defaultSlUnit === 'pct' ? '%' : '$'}
+            </button>
           </label>
           <label>
             TP
@@ -1453,7 +1535,20 @@ function OrderEntry({
                 if (Number.isFinite(v) && v > 0) onChangeDefaultTpPct(v);
               }}
             />
-            %
+            <button
+              type="button"
+              className="gt-unit-toggle"
+              onClick={() =>
+                onChangeDefaultTpUnit(defaultTpUnit === 'pct' ? 'usd' : 'pct')
+              }
+              title={
+                defaultTpUnit === 'pct'
+                  ? '% of price — click for $ per share'
+                  : '$ per share — click for %'
+              }
+            >
+              {defaultTpUnit === 'pct' ? '%' : '$'}
+            </button>
           </label>
           <button
             type="button"

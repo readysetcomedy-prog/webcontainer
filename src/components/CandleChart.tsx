@@ -94,7 +94,19 @@ export default function CandleChart({
         close: b.close,
       }));
     seriesRef.current.setData(data);
-    chartRef.current.timeScale().fitContent();
+    // Default the visible window to the last ~80 bars rather than fitContent()
+    // (which zoomed all the way out and made intraday charts unreadable).
+    // 80 bars works across timeframes: ~80 min on 1m, ~6.5h on 5m, ~4 months
+    // on daily. User can still scroll/zoom to see more.
+    const total = data.length;
+    if (total > 0) {
+      chartRef.current.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, total - 80),
+        to: total + 2,
+      });
+    } else {
+      chartRef.current.timeScale().fitContent();
+    }
   }, [bars]);
 
   return (

@@ -1,5 +1,7 @@
 import { getBars, getBarsRange, AlpacaBar, AlpacaEnv } from './alpaca';
 
+export type SlTpUnit = 'pct' | 'usd';
+
 // Returns the ET (America/New_York) calendar date and wall-clock h/m for a UTC
 // timestamp. Used for filtering bars to specific times-of-day relative to the
 // US trading session.
@@ -44,8 +46,16 @@ export interface BacktestConfig {
   entryMinuteET: number;
   exitHourET: number;
   exitMinuteET: number;
+  // stopLossPct / takeProfitPct are interpreted by stopLossUnit / takeProfitUnit:
+  //   'pct' → percent distance from entry  (5 = 5%)
+  //   'usd' → flat dollars-per-share offset (5 = $5 below/above entry)
+  // Both are *always* measured from the simulated fill (entryBar.close), so the
+  // SL/TP distance is exactly what you typed regardless of the underlying
+  // stock's price.
   stopLossPct: number;
   takeProfitPct: number;
+  stopLossUnit?: SlTpUnit;
+  takeProfitUnit?: SlTpUnit;
   positionSize: number;
   variants: BacktestVariant[];
   upPct: number;
@@ -187,8 +197,18 @@ function simulateTrade(
 ): BacktestTrade {
   const entryPrice = entryBar.close;
   const shares = config.positionSize / entryPrice;
-  const slPrice = entryPrice * (1 - config.stopLossPct);
-  const tpPrice = entryPrice * (1 + config.takeProfitPct);
+  // SL/TP distance: pct mode multiplies entryPrice (config value already
+  // converted to a decimal, e.g. 0.05 for 5%); usd mode treats the value as a
+  // flat dollar offset per share. All distances are measured from the
+  // simulated fill, so "5 pips" / "5 USD" is exactly 5 below the entry.
+  const slUnit: SlTpUnit = config.stopLossUnit ?? 'pct';
+  const tpUnit: SlTpUnit = config.takeProfitUnit ?? 'pct';
+  const slDistance =
+    slUnit === 'usd' ? config.stopLossPct : entryPrice * config.stopLossPct;
+  const tpDistance =
+    tpUnit === 'usd' ? config.takeProfitPct : entryPrice * config.takeProfitPct;
+  const slPrice = entryPrice - slDistance;
+  const tpPrice = entryPrice + tpDistance;
 
   const finalize = (
     exitBar: AlpacaBar,
