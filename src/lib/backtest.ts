@@ -25,13 +25,14 @@ export function etParts(utcIso: string): { date: string; h: number; m: number } 
   };
 }
 
-export type BacktestVariant = 'A' | 'B' | 'C' | 'D';
+export type BacktestVariant = 'A' | 'B' | 'C' | 'D' | 'E';
 
 export const VARIANT_LABELS: Record<BacktestVariant, string> = {
   A: 'Up ≥2% from prev close',
   B: 'Opening-range breakout (9:30–9:45 high)',
   C: 'A + volume ≥2× 20-day avg',
   D: 'A + SPY positive intraday + stock above 10-day trend',
+  E: 'Scalp: first green bar after a red bar (re-entry per signal)',
 };
 
 export interface BacktestConfig {
@@ -320,6 +321,7 @@ export async function runBacktest(
     B: [],
     C: [],
     D: [],
+    E: [],
   };
   let symbolsProcessed = 0;
   const total = config.symbols.length;
@@ -382,6 +384,9 @@ export async function runBacktest(
             period.endDate,
           );
           processSymbol(sym, bars, config, tradesByVariant, spyByDate);
+          if (config.variants.includes('E')) {
+            processSymbolScalp(sym, bars, config, tradesByVariant);
+          }
         } catch (e) {
           errors[sym] = (e as Error).message;
         } finally {
@@ -519,4 +524,145 @@ function processSymbol(
       tradesByVariant[variant].push(trade);
     }
   }
+}
+
+// Scalp scanner — walks every bar of every session looking for the simple
+// "first green bar after a red bar" pattern. Unlike processSymbol, which fires
+// at most one entry per symbol per day at the configured entry hour, this
+// allows MANY trades per session: each completed trade re-arms the scanner
+// for the next signal. Position state is single-slot — while in a trade we
+// ignore new signals until SL/TP/EOD closes it.
+function processSymbolScalp(
+  symbol: string,
+  bars: AlpacaBar[],
+  config: BacktestConfig,
+  tradesByVariant: Record<BacktestVariant, BacktestTrade[]>,
+) {
+  if (bars.length === 0) return;
+  const slUnit: SlTpUnit = config.stopLossUnit ?? 'pct';
+  const tpUnit: SlTpUnit = config.takeProfitUnit ?? 'pct';
+  const byDate = groupBarsByETDate(bars);
+  const dates = [...byDate.keys()].sort();
+
+  for (const date of dates) {
+    const todayBars = byDate.get(date)!;
+    let inPosition:
+      | {
+          entryBar: AlpacaBar;
+          entryPrice: number;
+          slPrice: number;
+          tpPrice: number;
+        }
+      | null = null;
+    let prevBar: AlpacaBar | null = null;
+
+    for (let i = 0; i < todayBars.length; i++) {
+      const bar = todayBars[i];
+
+      // EOD time check: if not holding-until-SL-or-TP, close any open position
+      // at the configured exit ET and stop scanning for the day.
+      const pastEOD =
+        !config.disableEOD &&
+        isAtOrAfterET(bar.time, config.exitHourET, config.exitMinuteET);
+
+      if (inPosition) {
+        if (pastEOD) {
+          tradesByVariant.E.push(
+            makeScalpTrade(symbol, date, inPosition, bar, bar.open, 'eod', config.positionSize),
+          );
+          inPosition = null;
+          break;
+        }
+        // Bar low / high test. Worst-case ordering (SL first) if both touch.
+        const hitSL = bar.low <= inPosition.slPrice;
+        const hitTP = bar.high >= inPosition.tpPrice;
+        if (hitSL) {
+          const fill =
+            bar.open <= inPosition.slPrice ? bar.open : inPosition.slPrice;
+          tradesByVariant.E.push(
+            makeScalpTrade(symbol, date, inPosition, bar, fill, 'sl', config.positionSize),
+          );
+          inPosition = null;
+        } else if (hitTP) {
+          const fill =
+            bar.open >= inPosition.tpPrice ? bar.open : inPosition.tpPrice;
+          tradesByVariant.E.push(
+            makeScalpTrade(symbol, date, inPosition, bar, fill, 'tp', config.positionSize),
+          );
+          inPosition = null;
+        }
+        prevBar = bar;
+        continue;
+      }
+
+      // Not in a position — look for entry signal.
+      if (pastEOD) {
+        // No new entries past EOD even with disableEOD off.
+        prevBar = bar;
+        continue;
+      }
+      if (prevBar) {
+        const prevRed = prevBar.close < prevBar.open;
+        const currGreen = bar.close > bar.open;
+        if (prevRed && currGreen) {
+          const entryPrice = bar.close;
+          const slDistance =
+            slUnit === 'usd' ? config.stopLossPct : entryPrice * config.stopLossPct;
+          const tpDistance =
+            tpUnit === 'usd' ? config.takeProfitPct : entryPrice * config.takeProfitPct;
+          inPosition = {
+            entryBar: bar,
+            entryPrice,
+            slPrice: entryPrice - slDistance,
+            tpPrice: entryPrice + tpDistance,
+          };
+        }
+      }
+      prevBar = bar;
+    }
+
+    // Session ended with a still-open position. If disableEOD, hold across
+    // sessions — but we already broke out earlier in that case via EOD check
+    // being skipped. With EOD on, the EOD branch above already closed it. So
+    // this branch only matters if the data ran out before EOD (truncated day).
+    if (inPosition && todayBars.length > 0) {
+      const last = todayBars[todayBars.length - 1];
+      tradesByVariant.E.push(
+        makeScalpTrade(symbol, date, inPosition, last, last.close, 'window', config.positionSize),
+      );
+    }
+  }
+}
+
+function makeScalpTrade(
+  symbol: string,
+  date: string,
+  pos: {
+    entryBar: AlpacaBar;
+    entryPrice: number;
+    slPrice: number;
+    tpPrice: number;
+  },
+  exitBar: AlpacaBar,
+  exitPrice: number,
+  reason: 'sl' | 'tp' | 'eod' | 'window',
+  positionSize: number,
+): BacktestTrade {
+  // Use the same shares calculation as simulateTrade so total P&L and
+  // "return on deployed" are comparable across variants.
+  const shares = positionSize / pos.entryPrice;
+  return {
+    symbol,
+    variant: 'E',
+    date,
+    entryTime: pos.entryBar.time,
+    entryPrice: pos.entryPrice,
+    exitTime: exitBar.time,
+    exitPrice,
+    exitReason: reason,
+    shares,
+    pnl: (exitPrice - pos.entryPrice) * shares,
+    pnlPct: (exitPrice - pos.entryPrice) / pos.entryPrice,
+    daysHeld: 1,
+  };
 }

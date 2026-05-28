@@ -39,6 +39,7 @@ export default function BacktestPanel({
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [symbolOverride, setSymbolOverride] = useState('');
   const [periodMode, setPeriodMode] = useState<'lookback' | 'range'>('lookback');
   const [lookbackDays, setLookbackDays] = useState(120);
   const [startDate, setStartDate] = useState('');
@@ -58,6 +59,9 @@ export default function BacktestPanel({
     B: true,
     C: true,
     D: true,
+    // E is off by default — scalping uses very different SL/TP scales (typical:
+    // SL $0.05, TP $0.03 in $/sh mode) so leaving it off keeps mixed runs sane.
+    E: false,
   });
   const [disableEOD, setDisableEOD] = useState(false);
 
@@ -66,15 +70,21 @@ export default function BacktestPanel({
   async function run() {
     setError(null);
     setResult(null);
-    const variants = (['A', 'B', 'C', 'D'] as BacktestVariant[]).filter(
+    const variants = (['A', 'B', 'C', 'D', 'E'] as BacktestVariant[]).filter(
       (v) => variantSelected[v],
     );
     if (variants.length === 0) {
       setError('Pick at least one variant.');
       return;
     }
-    if (symbols.length === 0) {
-      setError('Watchlist is empty.');
+    const overrideTrimmed = symbolOverride.trim().toUpperCase();
+    const targetSymbols = overrideTrimmed ? [overrideTrimmed] : symbols;
+    if (targetSymbols.length === 0) {
+      setError(
+        overrideTrimmed
+          ? 'Symbol override is empty after trim.'
+          : 'Watchlist is empty.',
+      );
       return;
     }
     if (periodMode === 'range') {
@@ -88,7 +98,7 @@ export default function BacktestPanel({
       }
     }
     const config: BacktestConfig = {
-      symbols,
+      symbols: targetSymbols,
       ...(periodMode === 'lookback'
         ? { lookbackDays }
         : { startDate, endDate }),
@@ -110,7 +120,7 @@ export default function BacktestPanel({
       disableEOD,
     };
     setRunning(true);
-    setProgress({ done: 0, total: symbols.length });
+    setProgress({ done: 0, total: targetSymbols.length });
     try {
       const res = await runBacktest(env, config, (done, total) =>
         setProgress({ done, total }),
@@ -125,6 +135,30 @@ export default function BacktestPanel({
 
   return (
     <div className="gt-backtest">
+      <div className="gt-backtest-period">
+        <label className="gt-field gt-inline-field">
+          <span>Symbol</span>
+          <input
+            type="text"
+            placeholder={`all watchlist (${symbols.length})`}
+            value={symbolOverride}
+            onChange={(e) => setSymbolOverride(e.target.value)}
+            style={{ width: 120, textTransform: 'uppercase' }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {symbolOverride.trim() && (
+            <button
+              type="button"
+              className="gt-link"
+              onClick={() => setSymbolOverride('')}
+              title="Back to all watchlist symbols"
+            >
+              clear
+            </button>
+          )}
+        </label>
+      </div>
       <div className="gt-backtest-period">
         <div className="gt-side-toggle" role="group">
           <button
@@ -300,7 +334,7 @@ export default function BacktestPanel({
         </label>
       </div>
       <div className="gt-backtest-variants">
-        {(['A', 'B', 'C', 'D'] as BacktestVariant[]).map((v) => (
+        {(['A', 'B', 'C', 'D', 'E'] as BacktestVariant[]).map((v) => (
           <label key={v} className="gt-check">
             <input
               type="checkbox"
@@ -332,7 +366,11 @@ export default function BacktestPanel({
           onClick={run}
           disabled={running}
         >
-          {running ? 'Running…' : `Run on ${symbols.length} symbols`}
+          {running
+            ? 'Running…'
+            : symbolOverride.trim()
+            ? `Run on ${symbolOverride.trim().toUpperCase()}`
+            : `Run on ${symbols.length} symbols`}
         </button>
         {progress && running && (
           <span className="gt-muted">
