@@ -692,6 +692,12 @@ html, body, #root {
   font-size: 12px;
 }
 
+.gt-movement-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
 .gt-momentum {
   margin-bottom: 14px;
   padding: 10px 14px;

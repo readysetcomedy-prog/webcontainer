@@ -620,6 +620,36 @@ export default function GetTradingPage() {
     setDailyBars(fresh);
   }, [env, watchlist]);
 
+  // Intraday 5-min bars per OPEN POSITION symbol. Drives the per-position
+  // movement column (total ups / downs in the last ~30 bars + current
+  // consecutive-direction run). Refreshed faster than dailyBars but slower
+  // than snapshots — these bars only finalize every 5 minutes anyway.
+  const [positionIntradayBars, setPositionIntradayBars] = useState<
+    Record<string, AlpacaBar[]>
+  >({});
+  const refreshPositionIntradayBars = useCallback(async () => {
+    if (positions.length === 0) return;
+    const syms = Array.from(new Set(positions.map((p) => p.symbol)));
+    const fresh: Record<string, AlpacaBar[]> = {};
+    const CONCURRENCY = 4;
+    for (let i = 0; i < syms.length; i += CONCURRENCY) {
+      const chunk = syms.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        chunk.map(async (sym) => {
+          try {
+            // 2 calendar days catches today plus the tail of yesterday so a
+            // freshly-opened position right after open still shows movement.
+            const bars = await getBars(env, sym, '5Min', 2);
+            fresh[sym] = bars;
+          } catch {
+            // Skip — symbol just won't have movement stats this cycle.
+          }
+        }),
+      );
+    }
+    setPositionIntradayBars(fresh);
+  }, [env, positions]);
+
   const refreshBars = useCallback(async () => {
     if (!selectedSymbol) return;
     setBarsLoading(true);
@@ -652,6 +682,12 @@ export default function GetTradingPage() {
     const id = setInterval(refreshDailyBars, 30 * 60_000);
     return () => clearInterval(id);
   }, [refreshDailyBars]);
+
+  useEffect(() => {
+    refreshPositionIntradayBars();
+    const id = setInterval(refreshPositionIntradayBars, 90_000);
+    return () => clearInterval(id);
+  }, [refreshPositionIntradayBars]);
 
   useEffect(() => {
     refreshBars();
@@ -1381,6 +1417,7 @@ export default function GetTradingPage() {
           <PositionsTable
             positions={positions}
             snapshots={snapshots}
+            intradayBars={positionIntradayBars}
             onClose={handleClosePosition}
             onSelect={setSelectedSymbol}
             onSetSLTP={handleSetPositionSLTP}
@@ -2123,12 +2160,14 @@ function OrderEntry({
 function PositionsTable({
   positions,
   snapshots,
+  intradayBars,
   onClose,
   onSelect,
   onSetSLTP,
 }: {
   positions: AlpacaPosition[];
   snapshots: Record<string, AlpacaSnapshot>;
+  intradayBars: Record<string, AlpacaBar[]>;
   onClose: (symbol: string) => void;
   onSelect: (symbol: string) => void;
   onSetSLTP: (p: AlpacaPosition) => void;
@@ -2164,6 +2203,9 @@ function PositionsTable({
             <th>Last</th>
             <th>Mkt value</th>
             <th>Unrealized</th>
+            <th title="5-min bar movement over recent ~2.5 hours: total ups / total downs · current consecutive run direction and length">
+              Movement
+            </th>
             <th></th>
           </tr>
         </thead>
@@ -2177,6 +2219,8 @@ function PositionsTable({
               ? String(qtyNum)
               : qtyNum.toFixed(4);
             const isLong = p.side === 'long';
+            const mv = computeMovementStats(intradayBars[p.symbol]);
+            const hasMovement = mv.ups + mv.downs > 0;
             return (
               <tr key={p.asset_id}>
                 <td>
@@ -2196,6 +2240,25 @@ function PositionsTable({
                 <td>{fmtMoney(p.market_value)}</td>
                 <td className={pl >= 0 ? 'pos' : 'neg'}>
                   {fmtMoney(p.unrealized_pl)} ({fmtPct(p.unrealized_plpc)})
+                </td>
+                <td className="gt-movement-cell">
+                  {hasMovement ? (
+                    <>
+                      <span className="pos">↑{mv.ups}</span>{' '}
+                      <span className="neg">↓{mv.downs}</span>
+                      {mv.streakCount > 0 && (
+                        <>
+                          {' · '}
+                          <span className={mv.streakDir === 'up' ? 'pos' : 'neg'}>
+                            {mv.streakDir === 'up' ? '↑' : '↓'}
+                            {mv.streakCount}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <span className="gt-muted">—</span>
+                  )}
                 </td>
                 <td>
                   <button
@@ -2228,6 +2291,7 @@ function PositionsTable({
               {totalPct >= 0 ? '+' : ''}
               {totalPct.toFixed(2)}%)
             </td>
+            <td></td>
             <td></td>
           </tr>
         </tfoot>
@@ -2702,6 +2766,51 @@ function SignalsFeed({
 // is strictly greater than the previous trading day's close. Walks backward
 // from the most recent bar and stops at the first non-up day. Bars don't have
 // to be pre-sorted — we sort by time first.
+interface MovementStats {
+  ups: number;
+  downs: number;
+  streakDir: 'up' | 'down' | 'flat';
+  streakCount: number;
+}
+
+// Count of up vs down 5-min bars in the trailing window, plus the current
+// consecutive-direction run. "Up" = close strictly greater than previous
+// close; "down" = strictly less. Bars whose close exactly matches the prior
+// bar are skipped (don't count toward either tally and don't break the streak
+// — treated as no information).
+function computeMovementStats(
+  bars: AlpacaBar[] | undefined,
+  windowSize = 30,
+): MovementStats {
+  if (!bars || bars.length < 2) {
+    return { ups: 0, downs: 0, streakDir: 'flat', streakCount: 0 };
+  }
+  const sorted = [...bars].sort((a, b) => a.time.localeCompare(b.time));
+  const slice = sorted.slice(-windowSize);
+  let ups = 0;
+  let downs = 0;
+  for (let i = 1; i < slice.length; i++) {
+    if (slice[i].close > slice[i - 1].close) ups++;
+    else if (slice[i].close < slice[i - 1].close) downs++;
+  }
+  let streakDir: 'up' | 'down' | 'flat' = 'flat';
+  let streakCount = 0;
+  for (let i = slice.length - 1; i > 0; i--) {
+    const diff = slice[i].close - slice[i - 1].close;
+    if (diff === 0) continue;
+    const dir: 'up' | 'down' = diff > 0 ? 'up' : 'down';
+    if (streakDir === 'flat') {
+      streakDir = dir;
+      streakCount = 1;
+    } else if (streakDir === dir) {
+      streakCount++;
+    } else {
+      break;
+    }
+  }
+  return { ups, downs, streakDir, streakCount };
+}
+
 function consecutiveUpDays(bars: AlpacaBar[] | undefined): number {
   if (!bars || bars.length < 2) return 0;
   const sorted = [...bars].sort((a, b) => a.time.localeCompare(b.time));
