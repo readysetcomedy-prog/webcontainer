@@ -790,6 +790,12 @@ html, body, #root {
   font-variant-numeric: tabular-nums;
 }
 
+.gt-momentum-traj {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .gt-momentum-sym {
   font-weight: 600;
   letter-spacing: 0.5px;

@@ -1458,6 +1458,7 @@ export default function GetTradingPage() {
       </div>
 
       <MomentumStrip
+        env={env}
         symbols={watchlist}
         snapshots={snapshots}
         dailyBars={dailyBars}
@@ -2825,12 +2826,14 @@ function consecutiveUpDays(bars: AlpacaBar[] | undefined): number {
 type MomentumSort = 'streak' | 'pct';
 
 function MomentumStrip({
+  env,
   symbols,
   snapshots,
   dailyBars,
   selected,
   onSelect,
 }: {
+  env: AlpacaEnv;
   symbols: string[];
   snapshots: Record<string, AlpacaSnapshot>;
   dailyBars: Record<string, AlpacaBar[]>;
@@ -2840,6 +2843,9 @@ function MomentumStrip({
   const [sortMode, setSortMode] = useState<MomentumSort>('streak');
   const [pctThreshold, setPctThreshold] = useState(2);
   const [streakThreshold, setStreakThreshold] = useState(5);
+  // Intraday 5-min bars for the current candidate symbols only (the filter is
+  // tight, so this is usually a handful of symbols — cheap to fetch).
+  const [intradayBars, setIntradayBars] = useState<Record<string, AlpacaBar[]>>({});
 
   // Filter: today's change ≥ pctThreshold AND trailing up-streak ≥ streakThreshold.
   // Streak comes from the daily-bar cache; if we don't have bars for a symbol
@@ -2863,6 +2869,42 @@ function MomentumStrip({
     });
     return list;
   }, [symbols, snapshots, dailyBars, sortMode, pctThreshold, streakThreshold]);
+
+  // Fetch intraday 5-min bars for the candidate set whenever it changes, and
+  // refresh on a slow timer. Keyed off the joined symbol list so we only refetch
+  // when the membership actually changes, not on every snapshot tick.
+  const candidateKey = candidates.map((c) => c.symbol).sort().join(',');
+  useEffect(() => {
+    const syms = candidateKey ? candidateKey.split(',') : [];
+    if (syms.length === 0) {
+      setIntradayBars({});
+      return;
+    }
+    let cancelled = false;
+    const fetchAll = async () => {
+      const fresh: Record<string, AlpacaBar[]> = {};
+      const CONCURRENCY = 4;
+      for (let i = 0; i < syms.length; i += CONCURRENCY) {
+        const chunk = syms.slice(i, i + CONCURRENCY);
+        await Promise.all(
+          chunk.map(async (sym) => {
+            try {
+              fresh[sym] = await getBars(env, sym, '5Min', 1);
+            } catch {
+              // skip
+            }
+          }),
+        );
+      }
+      if (!cancelled) setIntradayBars(fresh);
+    };
+    fetchAll();
+    const id = setInterval(fetchAll, 90_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [candidateKey, env]);
 
   return (
     <section className="gt-momentum">
@@ -2924,23 +2966,43 @@ function MomentumStrip({
         </div>
       ) : (
         <div className="gt-momentum-scroll">
-          {candidates.map((c) => (
-            <button
-              key={c.symbol}
-              type="button"
-              className={`gt-momentum-tile ${selected === c.symbol ? 'active' : ''}`}
-              onClick={() => onSelect(c.symbol)}
-              title={`Click to load ${c.symbol} into the order form / chart`}
-            >
-              <div className="gt-momentum-pct pos">
-                +{c.changePct.toFixed(2)}%
-              </div>
-              <div className="gt-momentum-streak">
-                {c.streak}d up
-              </div>
-              <div className="gt-momentum-sym">{c.symbol}</div>
-            </button>
-          ))}
+          {candidates.map((c) => {
+            const mv = computeMovementStats(intradayBars[c.symbol]);
+            return (
+              <button
+                key={c.symbol}
+                type="button"
+                className={`gt-momentum-tile ${selected === c.symbol ? 'active' : ''}`}
+                onClick={() => onSelect(c.symbol)}
+                title={`Click to load ${c.symbol} into the order form / chart`}
+              >
+                <div className="gt-momentum-pct pos">
+                  +{c.changePct.toFixed(2)}%
+                </div>
+                <div className="gt-momentum-streak">{c.streak}d up</div>
+                <div
+                  className={
+                    'gt-momentum-traj ' +
+                    (mv.streakDir === 'up'
+                      ? 'pos'
+                      : mv.streakDir === 'down'
+                      ? 'neg'
+                      : 'gt-muted')
+                  }
+                  title={
+                    mv.streakCount > 0
+                      ? `Moved ${mv.streakDir} ${mv.streakCount} of the last ${mv.streakCount} 5-min bars`
+                      : 'No clear intraday run'
+                  }
+                >
+                  {mv.streakCount > 0
+                    ? `${mv.streakDir === 'up' ? '↑' : '↓'}${mv.streakCount} run`
+                    : '—'}
+                </div>
+                <div className="gt-momentum-sym">{c.symbol}</div>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
