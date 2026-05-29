@@ -637,9 +637,12 @@ export default function GetTradingPage() {
       await Promise.all(
         chunk.map(async (sym) => {
           try {
-            // 2 calendar days catches today plus the tail of yesterday so a
-            // freshly-opened position right after open still shows movement.
-            const bars = await getBars(env, sym, '5Min', 2);
+            // 7 calendar days is enough headroom to compute movement from
+            // entry time for most day-trade / few-day swing positions, while
+            // staying well under the 10k-bar per-request cap (~550 bars).
+            // Positions older than 7 days fall back to "movement since 7 days
+            // ago" rather than full lifetime — acceptable for the use case.
+            const bars = await getBars(env, sym, '5Min', 7);
             fresh[sym] = bars;
           } catch {
             // Skip — symbol just won't have movement stats this cycle.
@@ -1418,6 +1421,7 @@ export default function GetTradingPage() {
             positions={positions}
             snapshots={snapshots}
             intradayBars={positionIntradayBars}
+            orders={orders}
             onClose={handleClosePosition}
             onSelect={setSelectedSymbol}
             onSetSLTP={handleSetPositionSLTP}
@@ -2162,6 +2166,7 @@ function PositionsTable({
   positions,
   snapshots,
   intradayBars,
+  orders,
   onClose,
   onSelect,
   onSetSLTP,
@@ -2169,6 +2174,7 @@ function PositionsTable({
   positions: AlpacaPosition[];
   snapshots: Record<string, AlpacaSnapshot>;
   intradayBars: Record<string, AlpacaBar[]>;
+  orders: AlpacaOrder[];
   onClose: (symbol: string) => void;
   onSelect: (symbol: string) => void;
   onSetSLTP: (p: AlpacaPosition) => void;
@@ -2204,7 +2210,7 @@ function PositionsTable({
             <th>Last</th>
             <th>Mkt value</th>
             <th>Unrealized</th>
-            <th title="5-min bar movement over recent ~2.5 hours: total ups / total downs · current consecutive run direction and length">
+            <th title="5-min bar movement SINCE this position was opened: total ups / total downs · current consecutive run direction and length">
               Movement
             </th>
             <th></th>
@@ -2220,7 +2226,17 @@ function PositionsTable({
               ? String(qtyNum)
               : qtyNum.toFixed(4);
             const isLong = p.side === 'long';
-            const mv = computeMovementStats(intradayBars[p.symbol]);
+            // Movement = all 5-min bars from this position's entry time
+            // forward. Look up entry from the orders list (handles
+            // closed-and-re-entered cycles correctly) and slice the cached
+            // intraday bars accordingly. Window size is the full slice — we
+            // want totals over the position's lifetime, not a fixed N-bar tail.
+            const entryTime = findPositionEntryTime(p, orders);
+            const allBars = intradayBars[p.symbol] ?? [];
+            const sinceEntryBars = entryTime
+              ? allBars.filter((b) => b.time >= entryTime)
+              : allBars;
+            const mv = computeMovementStats(sinceEntryBars, sinceEntryBars.length);
             const hasMovement = mv.ups + mv.downs > 0;
             return (
               <tr key={p.asset_id}>
@@ -2810,6 +2826,41 @@ function computeMovementStats(
     }
   }
   return { ups, downs, streakDir, streakCount };
+}
+
+// Find the time the current open position was opened, by walking forward
+// through filled orders and tracking the running signed net qty. The most
+// recent transition from "flat" (net qty ≈ 0) into the position's direction
+// is the current entry. Handles the user-closed-and-re-entered case.
+// Returns null when we can't determine it from the visible orders.
+function findPositionEntryTime(
+  position: AlpacaPosition,
+  orders: AlpacaOrder[],
+): string | null {
+  const symOrders = orders
+    .filter(
+      (o) =>
+        o.symbol === position.symbol &&
+        o.status === 'filled' &&
+        o.filled_at !== null &&
+        o.filled_qty,
+    )
+    .sort((a, b) => (a.filled_at ?? '').localeCompare(b.filled_at ?? ''));
+  let net = 0;
+  let entryTime: string | null = null;
+  const desiredSign = position.side === 'long' ? 1 : -1;
+  for (const o of symOrders) {
+    const fillQty = parseFloat(o.filled_qty);
+    if (!Number.isFinite(fillQty) || fillQty <= 0) continue;
+    const prevNet = net;
+    const signed = o.side === 'buy' ? fillQty : -fillQty;
+    net += signed;
+    // Mark a new entry when we cross from flat into the position's direction.
+    if (Math.abs(prevNet) < 1e-6 && Math.sign(net) === desiredSign) {
+      entryTime = o.filled_at;
+    }
+  }
+  return entryTime;
 }
 
 function consecutiveUpDays(bars: AlpacaBar[] | undefined): number {
