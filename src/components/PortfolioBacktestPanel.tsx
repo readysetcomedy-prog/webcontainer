@@ -37,6 +37,7 @@ export default function PortfolioBacktestPanel({
   const [endDate, setEndDate] = useState('');
   const [symbolOverride, setSymbolOverride] = useState('');
   const [upPct, setUpPct] = useState(2);
+  const [minUpDays, setMinUpDays] = useState(0);
   const [positionSize, setPositionSize] = useState(100);
   const [entryHour, setEntryHour] = useState(11);
   const [exitHour, setExitHour] = useState(15);
@@ -88,6 +89,7 @@ export default function PortfolioBacktestPanel({
       exitHourET: exitHour,
       exitMinuteET: exitMinute,
       upPct: upPct / 100,
+      minUpDays,
       positionSize,
       lossLimit: ll,
       profitTarget: pt,
@@ -221,6 +223,16 @@ export default function PortfolioBacktestPanel({
             min="0.5"
             value={upPct}
             onChange={(e) => setUpPct(parseFloat(e.target.value) || 2)}
+          />
+        </label>
+        <label className="gt-field">
+          <span>Entry: ≥ up-day streak</span>
+          <input
+            type="number"
+            step="1"
+            min="0"
+            value={minUpDays}
+            onChange={(e) => setMinUpDays(parseInt(e.target.value, 10) || 0)}
           />
         </label>
         <label className="gt-field">

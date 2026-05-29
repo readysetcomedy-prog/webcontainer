@@ -23,6 +23,10 @@ export interface PortfolioBacktestConfig {
   exitMinuteET: number;
   // Entry qualifier — % up from prev close required at entry bar.
   upPct: number;
+  // Additional entry qualifier — minimum trailing consecutive up-days (closed
+  // sessions where each close beat the prior close) required going INTO the
+  // entry day. 0 = no streak requirement (just the upPct filter).
+  minUpDays: number;
   // Per-position notional dollar size (e.g. $100).
   positionSize: number;
   // Portfolio-level $ thresholds. Either or both can be set.
@@ -184,6 +188,40 @@ export async function runPortfolioBacktest(
   }
   const allDates = [...allDatesSet].sort();
 
+  // Per-symbol trailing up-day streak index. For each symbol, take the last
+  // 5-min bar of each ET date as that day's close, then compute the run of
+  // consecutive up-days ENDING at (and including) each date. The streak going
+  // INTO an entry day = the value at the symbol's immediately-prior date.
+  const streakIndexBySymbol: Record<
+    string,
+    { dateIndex: Map<string, number>; dates: string[]; streakEndingAt: number[] }
+  > = {};
+  for (const sym of Object.keys(barsBySymbolByDate)) {
+    const byDate = barsBySymbolByDate[sym];
+    const dates = [...byDate.keys()].sort();
+    const closes = dates.map((d) => {
+      const arr = byDate.get(d)!;
+      return arr[arr.length - 1].close;
+    });
+    const streakEndingAt: number[] = [];
+    for (let i = 0; i < dates.length; i++) {
+      if (i === 0) streakEndingAt.push(0);
+      else streakEndingAt.push(closes[i] > closes[i - 1] ? streakEndingAt[i - 1] + 1 : 0);
+    }
+    const dateIndex = new Map<string, number>();
+    dates.forEach((d, i) => dateIndex.set(d, i));
+    streakIndexBySymbol[sym] = { dateIndex, dates, streakEndingAt };
+  }
+
+  // Trailing up-streak for `sym` going into `date` (uses the prior closed day).
+  const upStreakInto = (sym: string, date: string): number => {
+    const idx = streakIndexBySymbol[sym];
+    if (!idx) return 0;
+    const di = idx.dateIndex.get(date);
+    if (di === undefined || di === 0) return 0;
+    return idx.streakEndingAt[di - 1];
+  };
+
   // 3. Walk dates chronologically, simulating the portfolio.
   const cycles: PortfolioCycle[] = [];
   let openPositions: OpenPosition[] = [];
@@ -253,6 +291,8 @@ export async function runPortfolioBacktest(
       if (!prevClose) continue;
       const upPctActual = (entryBar.close - prevClose) / prevClose;
       if (upPctActual < config.upPct) continue;
+      // Optional trailing up-day streak filter.
+      if (config.minUpDays > 0 && upStreakInto(sym, date) < config.minUpDays) continue;
       const shares = config.positionSize / entryBar.close;
       openPositions.push({
         symbol: sym,
