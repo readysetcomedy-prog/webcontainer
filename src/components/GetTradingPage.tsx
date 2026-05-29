@@ -930,6 +930,32 @@ export default function GetTradingPage() {
     return { closed, failed };
   }, [env, orders, positions, refreshAccountState]);
 
+  // Manual "close all" — confirm, cancel open orders + close every position,
+  // report the result. Wraps the same closeEverything helper the guard uses.
+  const handleCloseAll = useCallback(async () => {
+    if (positions.length === 0) return;
+    if (
+      !confirm(
+        `Close all ${positions.length} open position${positions.length === 1 ? '' : 's'} at market and cancel any working orders?`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const { closed, failed } = await closeEverything();
+      notify(
+        failed === 0 ? 'ok' : 'err',
+        `Closed ${closed}/${closed + failed} position${closed + failed === 1 ? '' : 's'}` +
+          (failed > 0 ? ' — some failed, check Orders.' : '.'),
+      );
+    } catch (e) {
+      notify('err', `Close all error: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [positions, closeEverything, notify]);
+
   // ET (America/New_York) calendar date — used by the daily guard so a fire
   // at 9pm ET marks the trading session day, not the next-day UTC date.
   const etToday = useCallback(() => {
@@ -1296,7 +1322,20 @@ export default function GetTradingPage() {
         </section>
 
         <section className="gt-panel">
-          <h2>Positions</h2>
+          <header className="gt-panel-header">
+            <h2 style={{ margin: 0 }}>Positions</h2>
+            {positions.length > 0 && (
+              <button
+                type="button"
+                className="gt-btn gt-btn-danger gt-close-all"
+                onClick={handleCloseAll}
+                disabled={busy}
+                title="Close every open position at market and cancel working orders"
+              >
+                Close all
+              </button>
+            )}
+          </header>
           <PositionsTable
             positions={positions}
             snapshots={snapshots}
