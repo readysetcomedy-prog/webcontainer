@@ -134,7 +134,49 @@ const SL_PCT_KEY = 'gettrading.defaultStopLossPct';
 const TP_PCT_KEY = 'gettrading.defaultTakeProfitPct';
 const SL_UNIT_KEY = 'gettrading.defaultStopLossUnit';
 const TP_UNIT_KEY = 'gettrading.defaultTakeProfitUnit';
+const ORDER_FORM_KEY = 'gettrading.orderForm';
 const DAILY_GUARD_KEY = 'gettrading.dailyGuard';
+
+type QtyMode = 'shares' | 'dollars' | 'pct';
+
+interface OrderFormSettings {
+  side: OrderSide;
+  type: OrderType;
+  qtyMode: QtyMode;
+  qty: string;
+  tif: TimeInForce;
+}
+
+function readOrderForm(): OrderFormSettings {
+  const fallback: OrderFormSettings = {
+    side: 'buy',
+    type: 'market',
+    qtyMode: 'shares',
+    qty: '0.1',
+    tif: 'day',
+  };
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(ORDER_FORM_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<OrderFormSettings>;
+      return {
+        side: p.side === 'sell' ? 'sell' : 'buy',
+        type: p.type === 'limit' ? 'limit' : 'market',
+        qtyMode:
+          p.qtyMode === 'dollars' || p.qtyMode === 'pct' ? p.qtyMode : 'shares',
+        qty: typeof p.qty === 'string' && p.qty !== '' ? p.qty : '0.1',
+        tif:
+          p.tif === 'gtc' || p.tif === 'day' || p.tif === 'ioc' || p.tif === 'fok' || p.tif === 'opg' || p.tif === 'cls'
+            ? p.tif
+            : 'day',
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
 
 interface DailyGuard {
   enabled: boolean;
@@ -1616,8 +1658,6 @@ function AccountStat({
   );
 }
 
-type QtyMode = 'shares' | 'dollars' | 'pct';
-
 function OrderEntry({
   busy,
   symbol: externalSymbol,
@@ -1649,16 +1689,26 @@ function OrderEntry({
   onChangeDefaultTpUnit: (u: SlTpUnit) => void;
   onSubmit: (input: import('../lib/alpaca').PlaceOrderInput) => void;
 }) {
+  const saved = useRef(readOrderForm()).current;
   const [symbol, setSymbol] = useState(externalSymbol);
-  const [side, setSide] = useState<OrderSide>('buy');
-  const [type, setType] = useState<OrderType>('market');
-  const [qtyMode, setQtyMode] = useState<QtyMode>('shares');
-  const [qty, setQty] = useState('0.1');
+  const [side, setSide] = useState<OrderSide>(saved.side);
+  const [type, setType] = useState<OrderType>(saved.type);
+  const [qtyMode, setQtyMode] = useState<QtyMode>(saved.qtyMode);
+  const [qty, setQty] = useState(saved.qty);
   const [limit, setLimit] = useState('');
-  const [tif, setTif] = useState<TimeInForce>('day');
+  const [tif, setTif] = useState<TimeInForce>(saved.tif);
   const [stopPrice, setStopPrice] = useState('');
   const [takePrice, setTakePrice] = useState('');
   const computedForRef = useRef<string>('');
+
+  // Persist the form settings (not symbol or computed prices) so the order
+  // box comes back the way the user left it on reload.
+  useEffect(() => {
+    localStorage.setItem(
+      ORDER_FORM_KEY,
+      JSON.stringify({ side, type, qtyMode, qty, tif }),
+    );
+  }, [side, type, qtyMode, qty, tif]);
 
   // Sync symbol from parent (chip / watchlist row click). Mark SL/TP as needing
   // recompute for the new symbol.
