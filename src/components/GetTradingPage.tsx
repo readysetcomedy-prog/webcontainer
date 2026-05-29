@@ -1388,6 +1388,54 @@ export default function GetTradingPage() {
 
       <CollapsiblePanel
         wide
+        title="Chart"
+        collapsed={!!collapsed.chart}
+        onToggle={() => toggleCollapsed('chart')}
+        headerRight={
+          <div className="gt-chart-meta">
+            <span className="gt-sym">{selectedSymbol}</span>
+            {chartSnap && (
+              <>
+                <span>{fmtMoney(chartSnap.last)}</span>
+                <span
+                  className={chartSnap.change >= 0 ? 'pos' : 'neg'}
+                >
+                  {chartSnap.change >= 0 ? '+' : ''}
+                  {fmtNum(chartSnap.change)} ({fmtPct(chartSnap.changePct)})
+                </span>
+              </>
+            )}
+            <div className="gt-tf-toggle" role="group" aria-label="Timeframe">
+              {RANGE_ORDER.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={chartRange === r ? 'active' : ''}
+                  onClick={() => setChartRange(r)}
+                  title={RANGE_CONFIG[r].label}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+        }
+      >
+        <CandleChart
+          bars={bars}
+          loading={barsLoading}
+          intraday={rangeCfg.intraday}
+        />
+        <SymbolStrip
+          symbols={watchlist}
+          snapshots={snapshots}
+          selected={selectedSymbol}
+          onSelect={setSelectedSymbol}
+        />
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        wide
         title={`Signals${signals.length ? ` (${signals.length})` : ''}`}
         collapsed={!!collapsed.signals}
         onToggle={() => toggleCollapsed('signals')}
@@ -1460,54 +1508,6 @@ export default function GetTradingPage() {
             setSignals((prev) => prev.filter((s) => s.id !== id))
           }
           watchedCount={watchlist.length}
-        />
-      </CollapsiblePanel>
-
-      <CollapsiblePanel
-        wide
-        title="Chart"
-        collapsed={!!collapsed.chart}
-        onToggle={() => toggleCollapsed('chart')}
-        headerRight={
-          <div className="gt-chart-meta">
-            <span className="gt-sym">{selectedSymbol}</span>
-            {chartSnap && (
-              <>
-                <span>{fmtMoney(chartSnap.last)}</span>
-                <span
-                  className={chartSnap.change >= 0 ? 'pos' : 'neg'}
-                >
-                  {chartSnap.change >= 0 ? '+' : ''}
-                  {fmtNum(chartSnap.change)} ({fmtPct(chartSnap.changePct)})
-                </span>
-              </>
-            )}
-            <div className="gt-tf-toggle" role="group" aria-label="Timeframe">
-              {RANGE_ORDER.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={chartRange === r ? 'active' : ''}
-                  onClick={() => setChartRange(r)}
-                  title={RANGE_CONFIG[r].label}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-        }
-      >
-        <CandleChart
-          bars={bars}
-          loading={barsLoading}
-          intraday={rangeCfg.intraday}
-        />
-        <SymbolStrip
-          symbols={watchlist}
-          snapshots={snapshots}
-          selected={selectedSymbol}
-          onSelect={setSelectedSymbol}
         />
       </CollapsiblePanel>
 
