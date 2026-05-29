@@ -133,6 +133,53 @@ const SL_PCT_KEY = 'gettrading.defaultStopLossPct';
 const TP_PCT_KEY = 'gettrading.defaultTakeProfitPct';
 const SL_UNIT_KEY = 'gettrading.defaultStopLossUnit';
 const TP_UNIT_KEY = 'gettrading.defaultTakeProfitUnit';
+const DAILY_GUARD_KEY = 'gettrading.dailyGuard';
+
+interface DailyGuard {
+  enabled: boolean;
+  // Negative number — fires when day P&L drops to or below this (e.g. -200).
+  lossLimit: number | null;
+  // Positive number — fires when day P&L rises to or above this (e.g. 500).
+  profitTarget: number | null;
+  // YYYY-MM-DD of the last day the guard triggered. Used to prevent re-firing
+  // during the same session if the user opens new positions after the auto-
+  // close. Resets the next day naturally.
+  triggeredDate: string | null;
+}
+
+const DEFAULT_DAILY_GUARD: DailyGuard = {
+  enabled: false,
+  lossLimit: null,
+  profitTarget: null,
+  triggeredDate: null,
+};
+
+function readDailyGuard(): DailyGuard {
+  if (typeof window === 'undefined') return DEFAULT_DAILY_GUARD;
+  try {
+    const raw = localStorage.getItem(DAILY_GUARD_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<DailyGuard>;
+      return {
+        enabled: parsed.enabled === true,
+        lossLimit:
+          typeof parsed.lossLimit === 'number' && Number.isFinite(parsed.lossLimit)
+            ? parsed.lossLimit
+            : null,
+        profitTarget:
+          typeof parsed.profitTarget === 'number' &&
+          Number.isFinite(parsed.profitTarget)
+            ? parsed.profitTarget
+            : null,
+        triggeredDate:
+          typeof parsed.triggeredDate === 'string' ? parsed.triggeredDate : null,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_DAILY_GUARD;
+}
 
 export type SlTpUnit = 'pct' | 'usd';
 
@@ -351,6 +398,10 @@ export default function GetTradingPage() {
   const [defaultTpUnit, setDefaultTpUnit] = useState<SlTpUnit>(() =>
     (typeof window !== 'undefined' && localStorage.getItem(TP_UNIT_KEY)) === 'usd' ? 'usd' : 'pct',
   );
+  const [dailyGuard, setDailyGuard] = useState<DailyGuard>(readDailyGuard);
+  // While we're firing the auto-close to prevent the monitoring effect from
+  // re-entering before triggeredDate has propagated through state.
+  const guardFiringRef = useRef(false);
   const [signalSettings, setSignalSettings] = useState<SignalSettings>(readSignalSettings);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [notifyEnabled, setNotifyEnabled] = useState<boolean>(() =>
@@ -399,6 +450,10 @@ export default function GetTradingPage() {
   useEffect(() => {
     localStorage.setItem(TP_UNIT_KEY, defaultTpUnit);
   }, [defaultTpUnit]);
+
+  useEffect(() => {
+    localStorage.setItem(DAILY_GUARD_KEY, JSON.stringify(dailyGuard));
+  }, [dailyGuard]);
 
   useEffect(() => {
     localStorage.setItem(SIGNAL_SETTINGS_KEY, JSON.stringify(signalSettings));
@@ -813,6 +868,79 @@ export default function GetTradingPage() {
     [env, notify, orders, refreshAccountState],
   );
 
+  // Close every open position and cancel every open order, in parallel.
+  // Used by the daily P&L guard when the day's P&L crosses the configured
+  // threshold; could be exposed as a manual "panic close" button later.
+  const closeEverything = useCallback(async (): Promise<{ closed: number; failed: number }> => {
+    const openStatuses = new Set([
+      'new',
+      'pending_new',
+      'accepted',
+      'partially_filled',
+      'pending_replace',
+      'replaced',
+      'held',
+    ]);
+    const openOrders = orders.filter((o) => openStatuses.has(o.status));
+    await Promise.allSettled(openOrders.map((o) => cancelOrder(env, o.id)));
+    // Brief settle for the cancels — Alpaca needs a beat before the held_for_orders
+    // qty is released, otherwise the closes fail with insufficient qty.
+    if (openOrders.length > 0) {
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+    const results = await Promise.allSettled(
+      positions.map((p) => closePosition(env, p.symbol)),
+    );
+    const closed = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - closed;
+    await refreshAccountState();
+    return { closed, failed };
+  }, [env, orders, positions, refreshAccountState]);
+
+  // Daily P&L guard monitor: on every account refresh, check if day P&L has
+  // crossed the configured loss limit or profit target. If so (and the guard
+  // is enabled, and hasn't already fired today), close everything.
+  useEffect(() => {
+    if (!dailyGuard.enabled || !account || positions.length === 0) return;
+    if (guardFiringRef.current) return;
+    const equity = parseFloat(account.equity);
+    const lastEquity = parseFloat(account.last_equity);
+    if (!Number.isFinite(equity) || !Number.isFinite(lastEquity)) return;
+    const dayPnL = equity - lastEquity;
+    const today = new Date().toISOString().slice(0, 10);
+    if (dailyGuard.triggeredDate === today) return;
+
+    const hitLoss =
+      dailyGuard.lossLimit !== null && dayPnL <= dailyGuard.lossLimit;
+    const hitProfit =
+      dailyGuard.profitTarget !== null && dayPnL >= dailyGuard.profitTarget;
+    if (!hitLoss && !hitProfit) return;
+
+    guardFiringRef.current = true;
+    const which = hitLoss ? 'loss limit' : 'profit target';
+    notify(
+      'ok',
+      `Daily ${which} hit (${dayPnL >= 0 ? '+' : ''}${fmtMoney(dayPnL)}). Closing all positions…`,
+    );
+    // Mark triggered immediately so a follow-up refresh during the close doesn't
+    // re-enter and stack a second close-everything.
+    setDailyGuard((g) => ({ ...g, triggeredDate: today }));
+    void (async () => {
+      try {
+        const { closed, failed } = await closeEverything();
+        notify(
+          failed === 0 ? 'ok' : 'err',
+          `Daily guard closed ${closed}/${closed + failed} position${closed + failed === 1 ? '' : 's'}` +
+            (failed > 0 ? ' — some failed, check Orders.' : '.'),
+        );
+      } catch (e) {
+        notify('err', `Daily guard error: ${(e as Error).message}`);
+      } finally {
+        guardFiringRef.current = false;
+      }
+    })();
+  }, [dailyGuard, account, positions, closeEverything, notify]);
+
   const handleSetPositionSLTP = useCallback(
     async (p: AlpacaPosition) => {
       const snap = snapshots[p.symbol];
@@ -1001,6 +1129,68 @@ export default function GetTradingPage() {
               : 'pos'
           }
         />
+      </section>
+
+      <section className="gt-daily-guard">
+        <label className="gt-check gt-daily-guard-toggle">
+          <input
+            type="checkbox"
+            checked={dailyGuard.enabled}
+            onChange={(e) =>
+              setDailyGuard((g) => ({ ...g, enabled: e.target.checked }))
+            }
+          />
+          <strong>Daily P&amp;L guard</strong>
+          <span className="gt-muted">
+            auto-close all positions when day P&amp;L hits either limit
+          </span>
+        </label>
+        <label className="gt-field gt-inline-field">
+          <span>Loss limit ($, negative)</span>
+          <input
+            type="number"
+            step="any"
+            placeholder="e.g. -200"
+            value={dailyGuard.lossLimit ?? ''}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              setDailyGuard((g) => ({
+                ...g,
+                lossLimit: Number.isFinite(v) ? v : null,
+              }));
+            }}
+          />
+        </label>
+        <label className="gt-field gt-inline-field">
+          <span>Profit target ($)</span>
+          <input
+            type="number"
+            step="any"
+            placeholder="e.g. 500"
+            value={dailyGuard.profitTarget ?? ''}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              setDailyGuard((g) => ({
+                ...g,
+                profitTarget: Number.isFinite(v) ? v : null,
+              }));
+            }}
+          />
+        </label>
+        {dailyGuard.triggeredDate === new Date().toISOString().slice(0, 10) && (
+          <span className="gt-muted">
+            ✓ Triggered today — won't re-fire until tomorrow.{' '}
+            <button
+              type="button"
+              className="gt-link"
+              onClick={() =>
+                setDailyGuard((g) => ({ ...g, triggeredDate: null }))
+              }
+            >
+              reset
+            </button>
+          </span>
+        )}
       </section>
 
       <div className="gt-grid">
@@ -1755,6 +1945,22 @@ function PositionsTable({
   if (positions.length === 0) {
     return <div className="gt-empty">No open positions.</div>;
   }
+  // Roll up the unrealized P&L across all open positions so the user has a
+  // single "where am I right now" number without doing mental math.
+  const totalUnrealized = positions.reduce(
+    (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
+    0,
+  );
+  const totalMktValue = positions.reduce(
+    (s, p) => s + (parseFloat(p.market_value) || 0),
+    0,
+  );
+  const totalCost = positions.reduce((s, p) => {
+    const qty = Math.abs(parseFloat(p.qty) || 0);
+    const avg = parseFloat(p.avg_entry_price) || 0;
+    return s + qty * avg;
+  }, 0);
+  const totalPct = totalCost > 0 ? (totalUnrealized / totalCost) * 100 : 0;
   return (
     <div className="gt-table-wrap">
       <table className="gt-table">
@@ -1819,6 +2025,21 @@ function PositionsTable({
             );
           })}
         </tbody>
+        <tfoot>
+          <tr className="gt-totals-row">
+            <td colSpan={5} className="gt-totals-label">
+              Total ({positions.length} position{positions.length === 1 ? '' : 's'})
+            </td>
+            <td>{fmtMoney(totalMktValue)}</td>
+            <td className={totalUnrealized >= 0 ? 'pos' : 'neg'}>
+              {totalUnrealized >= 0 ? '+' : ''}
+              {fmtMoney(totalUnrealized)} (
+              {totalPct >= 0 ? '+' : ''}
+              {totalPct.toFixed(2)}%)
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
