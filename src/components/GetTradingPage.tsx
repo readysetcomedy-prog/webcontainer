@@ -24,6 +24,7 @@ import type {
   TimeInForce,
 } from '../lib/alpaca';
 import BacktestPanel from './BacktestPanel';
+import PortfolioBacktestPanel from './PortfolioBacktestPanel';
 import CandleChart from './CandleChart';
 
 const ENV_KEY = 'gettrading.env';
@@ -1439,6 +1440,19 @@ export default function GetTradingPage() {
         onToggle={() => toggleCollapsed('backtest')}
       >
         <BacktestPanel env={env} symbols={watchlist} />
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        wide
+        title="Portfolio backtester (daily total SL/TP)"
+        collapsed={
+          collapsed.portfolioBacktest === undefined
+            ? true
+            : !!collapsed.portfolioBacktest
+        }
+        onToggle={() => toggleCollapsed('portfolioBacktest')}
+      >
+        <PortfolioBacktestPanel env={env} symbols={watchlist} />
       </CollapsiblePanel>
 
       {showProfileEditor && (
