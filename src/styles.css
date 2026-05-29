@@ -679,6 +679,14 @@ html, body, #root {
   font-size: 13px;
 }
 
+.gt-guard-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
 .gt-momentum {
   margin-bottom: 14px;
   padding: 10px 14px;

@@ -930,6 +930,20 @@ export default function GetTradingPage() {
     return { closed, failed };
   }, [env, orders, positions, refreshAccountState]);
 
+  // ET (America/New_York) calendar date — used by the daily guard so a fire
+  // at 9pm ET marks the trading session day, not the next-day UTC date.
+  const etToday = useCallback(() => {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts: Record<string, string> = {};
+    for (const p of fmt.formatToParts(new Date())) parts[p.type] = p.value;
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }, []);
+
   // Daily P&L guard monitor: on every account refresh, check if day P&L has
   // crossed the configured loss limit or profit target. If so (and the guard
   // is enabled, and hasn't already fired today), close everything.
@@ -940,7 +954,7 @@ export default function GetTradingPage() {
     const lastEquity = parseFloat(account.last_equity);
     if (!Number.isFinite(equity) || !Number.isFinite(lastEquity)) return;
     const dayPnL = equity - lastEquity;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = etToday();
     if (dailyGuard.triggeredDate === today) return;
 
     const hitLoss =
@@ -955,8 +969,9 @@ export default function GetTradingPage() {
       'ok',
       `Daily ${which} hit (${dayPnL >= 0 ? '+' : ''}${fmtMoney(dayPnL)}). Closing all positions…`,
     );
-    // Mark triggered immediately so a follow-up refresh during the close doesn't
-    // re-enter and stack a second close-everything.
+    // Mark triggered immediately (using the same ET date the check uses) so a
+    // follow-up refresh during the close doesn't re-enter and stack a second
+    // close-everything.
     setDailyGuard((g) => ({ ...g, triggeredDate: today }));
     void (async () => {
       try {
@@ -972,7 +987,7 @@ export default function GetTradingPage() {
         guardFiringRef.current = false;
       }
     })();
-  }, [dailyGuard, account, positions, closeEverything, notify]);
+  }, [dailyGuard, account, positions, closeEverything, notify, etToday]);
 
   const handleSetPositionSLTP = useCallback(
     async (p: AlpacaPosition) => {
@@ -1210,20 +1225,53 @@ export default function GetTradingPage() {
             }}
           />
         </label>
-        {dailyGuard.triggeredDate === new Date().toISOString().slice(0, 10) && (
-          <span className="gt-muted">
-            ✓ Triggered today — won't re-fire until tomorrow.{' '}
-            <button
-              type="button"
-              className="gt-link"
-              onClick={() =>
-                setDailyGuard((g) => ({ ...g, triggeredDate: null }))
-              }
-            >
-              reset
-            </button>
-          </span>
-        )}
+        {(() => {
+          const today = etToday();
+          const dayPnL = account
+            ? parseFloat(account.equity) - parseFloat(account.last_equity)
+            : NaN;
+          const triggeredToday = dailyGuard.triggeredDate === today;
+          // Status logic (mirrors the guard effect's gate ordering so the user
+          // sees the same reasoning the monitor uses).
+          let status: { label: string; cls: string } = {
+            label: 'disabled',
+            cls: 'gt-muted',
+          };
+          if (dailyGuard.enabled) {
+            if (triggeredToday) status = { label: '✓ triggered today', cls: 'gt-muted' };
+            else if (!account) status = { label: 'waiting for account', cls: 'gt-muted' };
+            else if (positions.length === 0)
+              status = { label: 'idle (no open positions to close)', cls: 'gt-muted' };
+            else if (dailyGuard.lossLimit === null && dailyGuard.profitTarget === null)
+              status = { label: 'set a limit to arm', cls: 'gt-muted' };
+            else status = { label: '● armed', cls: 'pos' };
+          }
+          return (
+            <div className="gt-guard-status">
+              <span className={status.cls}>{status.label}</span>
+              {dailyGuard.enabled && account && Number.isFinite(dayPnL) && (
+                <span className="gt-muted">
+                  · current day P&amp;L (what's tracked):{' '}
+                  <strong className={dayPnL >= 0 ? 'pos' : 'neg'}>
+                    {dayPnL >= 0 ? '+' : ''}
+                    {fmtMoney(dayPnL)}
+                  </strong>
+                </span>
+              )}
+              {triggeredToday && (
+                <button
+                  type="button"
+                  className="gt-link"
+                  onClick={() =>
+                    setDailyGuard((g) => ({ ...g, triggeredDate: null }))
+                  }
+                >
+                  reset (re-arm same day)
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </section>
 
       <div className="gt-grid">
