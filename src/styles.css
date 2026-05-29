@@ -679,6 +679,103 @@ html, body, #root {
   font-size: 13px;
 }
 
+.gt-momentum {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.gt-momentum-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.gt-momentum-head strong {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--fg);
+}
+
+.gt-mom-input {
+  width: 44px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 1px 4px;
+  font-size: 12px;
+  text-align: right;
+  margin: 0 4px;
+}
+
+.gt-momentum-sort {
+  margin-left: auto;
+}
+
+.gt-momentum-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-momentum-empty {
+  padding: 8px 0 4px;
+}
+
+.gt-momentum-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gt-momentum-tile {
+  flex: 0 0 auto;
+  min-width: 92px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  transition: border-color 0.1s ease;
+}
+
+.gt-momentum-tile:hover {
+  border-color: var(--accent, #3b82f6);
+}
+
+.gt-momentum-tile.active {
+  border-color: var(--accent, #3b82f6);
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.gt-momentum-pct {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-momentum-streak {
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-momentum-sym {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
 .gt-profile-picker {
   display: flex;
   align-items: center;

@@ -551,6 +551,32 @@ export default function GetTradingPage() {
     }
   }, [env, watchlist, positions, selectedSymbol]);
 
+  // Daily-bar cache keyed by symbol. Used by the Momentum strip to compute
+  // each name's trailing consecutive-up-day streak. Daily bars only change at
+  // session close, so this refreshes infrequently (every 30 min) and doesn't
+  // need to chase the snapshot polling cadence.
+  const [dailyBars, setDailyBars] = useState<Record<string, AlpacaBar[]>>({});
+  const refreshDailyBars = useCallback(async () => {
+    if (watchlist.length === 0) return;
+    const CONCURRENCY = 4;
+    const fresh: Record<string, AlpacaBar[]> = {};
+    for (let i = 0; i < watchlist.length; i += CONCURRENCY) {
+      const chunk = watchlist.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        chunk.map(async (sym) => {
+          try {
+            // ~20 trading days of headroom for the streak count.
+            const bars = await getBars(env, sym, '1Day', 30);
+            fresh[sym] = bars;
+          } catch {
+            // Skip symbols we can't fetch; they just won't appear in the strip.
+          }
+        }),
+      );
+    }
+    setDailyBars(fresh);
+  }, [env, watchlist]);
+
   const refreshBars = useCallback(async () => {
     if (!selectedSymbol) return;
     setBarsLoading(true);
@@ -577,6 +603,12 @@ export default function GetTradingPage() {
     const id = setInterval(refreshSnapshots, 6_000);
     return () => clearInterval(id);
   }, [refreshSnapshots]);
+
+  useEffect(() => {
+    refreshDailyBars();
+    const id = setInterval(refreshDailyBars, 30 * 60_000);
+    return () => clearInterval(id);
+  }, [refreshDailyBars]);
 
   useEffect(() => {
     refreshBars();
@@ -1257,6 +1289,14 @@ export default function GetTradingPage() {
           />
         </section>
       </div>
+
+      <MomentumStrip
+        symbols={watchlist}
+        snapshots={snapshots}
+        dailyBars={dailyBars}
+        selected={selectedSymbol}
+        onSelect={setSelectedSymbol}
+      />
 
       <CollapsiblePanel
         wide
@@ -2504,6 +2544,146 @@ function SignalsFeed({
         </li>
       ))}
     </ul>
+  );
+}
+
+// Trailing consecutive up-days based on daily bars. "Up day" = today's close
+// is strictly greater than the previous trading day's close. Walks backward
+// from the most recent bar and stops at the first non-up day. Bars don't have
+// to be pre-sorted — we sort by time first.
+function consecutiveUpDays(bars: AlpacaBar[] | undefined): number {
+  if (!bars || bars.length < 2) return 0;
+  const sorted = [...bars].sort((a, b) => a.time.localeCompare(b.time));
+  let streak = 0;
+  for (let i = sorted.length - 1; i > 0; i--) {
+    if (sorted[i].close > sorted[i - 1].close) streak++;
+    else break;
+  }
+  return streak;
+}
+
+type MomentumSort = 'streak' | 'pct';
+
+function MomentumStrip({
+  symbols,
+  snapshots,
+  dailyBars,
+  selected,
+  onSelect,
+}: {
+  symbols: string[];
+  snapshots: Record<string, AlpacaSnapshot>;
+  dailyBars: Record<string, AlpacaBar[]>;
+  selected: string;
+  onSelect: (s: string) => void;
+}) {
+  const [sortMode, setSortMode] = useState<MomentumSort>('streak');
+  const [pctThreshold, setPctThreshold] = useState(2);
+  const [streakThreshold, setStreakThreshold] = useState(5);
+
+  // Filter: today's change ≥ pctThreshold AND trailing up-streak ≥ streakThreshold.
+  // Streak comes from the daily-bar cache; if we don't have bars for a symbol
+  // yet (slow fetch, error), it's excluded — accurate-or-nothing.
+  const candidates = useMemo(() => {
+    const list: { symbol: string; changePct: number; streak: number }[] = [];
+    for (const sym of symbols) {
+      const snap = snapshots[sym];
+      if (!snap || !Number.isFinite(snap.changePct)) continue;
+      const pct = snap.changePct * 100;
+      if (pct < pctThreshold) continue;
+      const streak = consecutiveUpDays(dailyBars[sym]);
+      if (streak < streakThreshold) continue;
+      list.push({ symbol: sym, changePct: pct, streak });
+    }
+    list.sort((a, b) => {
+      if (sortMode === 'streak') {
+        return b.streak - a.streak || b.changePct - a.changePct;
+      }
+      return b.changePct - a.changePct || b.streak - a.streak;
+    });
+    return list;
+  }, [symbols, snapshots, dailyBars, sortMode, pctThreshold, streakThreshold]);
+
+  return (
+    <section className="gt-momentum">
+      <div className="gt-momentum-head">
+        <strong>Momentum</strong>
+        <span className="gt-muted">
+          up ≥
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            value={pctThreshold}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              if (Number.isFinite(v) && v >= 0) setPctThreshold(v);
+            }}
+            className="gt-mom-input"
+          />
+          % today AND ≥
+          <input
+            type="number"
+            step="1"
+            min="1"
+            value={streakThreshold}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (Number.isFinite(v) && v >= 1) setStreakThreshold(v);
+            }}
+            className="gt-mom-input"
+          />
+          -day up streak
+        </span>
+        <div className="gt-side-toggle gt-momentum-sort" role="group">
+          <button
+            type="button"
+            className={sortMode === 'streak' ? 'active' : ''}
+            onClick={() => setSortMode('streak')}
+            title="Sort by longest up streak first"
+          >
+            streak ▼
+          </button>
+          <button
+            type="button"
+            className={sortMode === 'pct' ? 'active' : ''}
+            onClick={() => setSortMode('pct')}
+            title="Sort by biggest % gainer first"
+          >
+            % today ▼
+          </button>
+        </div>
+        <span className="gt-muted gt-momentum-count">
+          {candidates.length} match{candidates.length === 1 ? '' : 'es'}
+        </span>
+      </div>
+      {candidates.length === 0 ? (
+        <div className="gt-empty gt-momentum-empty">
+          No watchlist symbols currently match. Either the filters are too
+          tight or no names are trending right now.
+        </div>
+      ) : (
+        <div className="gt-momentum-scroll">
+          {candidates.map((c) => (
+            <button
+              key={c.symbol}
+              type="button"
+              className={`gt-momentum-tile ${selected === c.symbol ? 'active' : ''}`}
+              onClick={() => onSelect(c.symbol)}
+              title={`Click to load ${c.symbol} into the order form / chart`}
+            >
+              <div className="gt-momentum-pct pos">
+                +{c.changePct.toFixed(2)}%
+              </div>
+              <div className="gt-momentum-streak">
+                {c.streak}d up
+              </div>
+              <div className="gt-momentum-sym">{c.symbol}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
