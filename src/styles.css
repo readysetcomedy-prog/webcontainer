@@ -698,6 +698,14 @@ html, body, #root {
   font-size: 12px;
 }
 
+.gt-orders-sentinel {
+  text-align: center;
+  font-size: 11px;
+  color: var(--fg-dim);
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
 .gt-momentum {
   margin-bottom: 14px;
   padding: 10px 14px;

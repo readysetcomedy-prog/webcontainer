@@ -2398,6 +2398,12 @@ function OrdersTable({
   onCancel: (id: string) => void;
 }) {
   const [symbolFilter, setSymbolFilter] = useState('');
+  const ORDERS_PAGE = 50;
+  // Infinite-scroll page count — start with one page, grow as user scrolls.
+  // Reset to 1 whenever filters change so the user always sees the freshest
+  // matches first instead of an old scroll position.
+  const [visibleCount, setVisibleCount] = useState(ORDERS_PAGE);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [sideFilter, setSideFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'filled' | 'open' | 'canceled'>(
     'all',
@@ -2438,6 +2444,34 @@ function OrdersTable({
       return true;
     });
   }, [orders, symbolFilter, sideFilter, statusFilter, fromDate, toDate]);
+
+  // Reset paging when filters change so the user always sees newest matches
+  // from the top instead of being mid-scroll on a previous filter's results.
+  useEffect(() => {
+    setVisibleCount(ORDERS_PAGE);
+  }, [symbolFilter, sideFilter, statusFilter, fromDate, toDate]);
+
+  // IntersectionObserver on the bottom sentinel — when it scrolls into view,
+  // grow the visible page by ORDERS_PAGE. No-op when we've already revealed
+  // every filtered row.
+  const filteredCount = filtered.length;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    if (visibleCount >= filteredCount) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((c) => Math.min(c + ORDERS_PAGE, filteredCount));
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visibleCount, filteredCount]);
+
+  const visibleRows = filtered.slice(0, visibleCount);
 
   const hasFilters =
     symbolFilter || sideFilter !== 'all' || statusFilter !== 'all' || fromDate || toDate;
@@ -2550,7 +2584,7 @@ function OrdersTable({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o) => {
+              {visibleRows.map((o) => {
                 const cancellable = [
                   'new',
                   'accepted',
@@ -2590,6 +2624,15 @@ function OrdersTable({
               })}
             </tbody>
           </table>
+          {visibleCount < filtered.length ? (
+            <div ref={sentinelRef} className="gt-orders-sentinel">
+              Loading more… ({visibleCount}/{filtered.length} shown)
+            </div>
+          ) : filtered.length > ORDERS_PAGE ? (
+            <div className="gt-orders-sentinel gt-muted">
+              End of {filtered.length} order{filtered.length === 1 ? '' : 's'}.
+            </div>
+          ) : null}
         </div>
       )}
     </>
