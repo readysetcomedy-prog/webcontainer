@@ -634,12 +634,12 @@ export default function GetTradingPage() {
       await Promise.all(
         chunk.map(async (sym) => {
           try {
-            // 7 calendar days is enough headroom to compute movement from
-            // entry time for most day-trade / few-day swing positions, while
-            // staying well under the 10k-bar per-request cap (~550 bars).
-            // Positions older than 7 days fall back to "movement since 7 days
-            // ago" rather than full lifetime — acceptable for the use case.
-            const bars = await getBars(env, sym, '5Min', 7);
+            // 1-min bars over 2 calendar days = up to ~780 bars per symbol,
+            // well under the 10K per-request cap. 1-min gives 5× more
+            // resolution than 5-min for the movement column, so freshly-opened
+            // positions accumulate ups/downs visibly rather than ticking once
+            // every 5 minutes.
+            const bars = await getBars(env, sym, '1Min', 2);
             fresh[sym] = bars;
           } catch {
             // Skip — symbol just won't have movement stats this cycle.
@@ -685,7 +685,9 @@ export default function GetTradingPage() {
 
   useEffect(() => {
     refreshPositionIntradayBars();
-    const id = setInterval(refreshPositionIntradayBars, 90_000);
+    // 1-min bars finalize every 60 seconds, so poll at that cadence to keep
+    // the per-position movement column moving in real time.
+    const id = setInterval(refreshPositionIntradayBars, 60_000);
     return () => clearInterval(id);
   }, [refreshPositionIntradayBars]);
 
@@ -2182,7 +2184,7 @@ function PositionsTable({
             <th>Last</th>
             <th>Mkt value</th>
             <th>Unrealized</th>
-            <th title="5-min bar movement SINCE this position was opened: total ups / total downs · current consecutive run direction and length">
+            <th title="1-min bar movement SINCE this position was opened: total ups · total downs · current consecutive run direction and length. Refreshes every 60s.">
               Movement
             </th>
             <th></th>
@@ -2203,13 +2205,18 @@ function PositionsTable({
             // closed-and-re-entered cycles correctly) and slice the cached
             // intraday bars accordingly. Window size is the full slice — we
             // want totals over the position's lifetime, not a fixed N-bar tail.
+            // If no entry order is in the cache (position older than the
+            // visible orders, or first load), don't fall back to "all bars" —
+            // that overstates movement. Show "—" instead so the user knows
+            // we don't have the data to compute since-entry.
             const entryTime = findPositionEntryTime(p, orders);
             const allBars = intradayBars[p.symbol] ?? [];
             const sinceEntryBars = entryTime
               ? allBars.filter((b) => b.time >= entryTime)
-              : allBars;
+              : [];
             const mv = computeMovementStats(sinceEntryBars, sinceEntryBars.length);
             const hasMovement = mv.ups + mv.downs > 0;
+            const hasEntryData = entryTime !== null;
             return (
               <tr key={p.asset_id}>
                 <td>
@@ -2230,8 +2237,19 @@ function PositionsTable({
                 <td className={pl >= 0 ? 'pos' : 'neg'}>
                   {fmtMoney(p.unrealized_pl)} ({fmtPct(p.unrealized_plpc)})
                 </td>
-                <td className="gt-movement-cell">
-                  {hasMovement ? (
+                <td
+                  className="gt-movement-cell"
+                  title={
+                    !hasEntryData
+                      ? 'No entry order in the visible orders list — try scrolling the orders panel or refresh.'
+                      : `Counted ${sinceEntryBars.length} 1-min bar${sinceEntryBars.length === 1 ? '' : 's'} since position was opened at ${entryTime ? new Date(entryTime).toLocaleTimeString() : '—'}`
+                  }
+                >
+                  {!hasEntryData ? (
+                    <span className="gt-muted" title="No entry order found">
+                      n/a
+                    </span>
+                  ) : hasMovement ? (
                     <>
                       <span className="pos">↑{mv.ups}</span>{' '}
                       <span className="neg">↓{mv.downs}</span>
@@ -2246,7 +2264,7 @@ function PositionsTable({
                       )}
                     </>
                   ) : (
-                    <span className="gt-muted">—</span>
+                    <span className="gt-muted">just opened</span>
                   )}
                 </td>
                 <td>
