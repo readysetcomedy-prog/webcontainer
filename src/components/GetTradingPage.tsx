@@ -180,21 +180,18 @@ function readOrderForm(): OrderFormSettings {
 
 interface DailyGuard {
   enabled: boolean;
-  // Negative number — fires when day P&L drops to or below this (e.g. -200).
+  // Negative number — fires when combined open-positions unrealized drops to
+  // or below this (e.g. -200).
   lossLimit: number | null;
-  // Positive number — fires when day P&L rises to or above this (e.g. 500).
+  // Positive number — fires when combined open-positions unrealized rises to
+  // or above this (e.g. 500).
   profitTarget: number | null;
-  // YYYY-MM-DD of the last day the guard triggered. Used to prevent re-firing
-  // during the same session if the user opens new positions after the auto-
-  // close. Resets the next day naturally.
-  triggeredDate: string | null;
 }
 
 const DEFAULT_DAILY_GUARD: DailyGuard = {
   enabled: false,
   lossLimit: null,
   profitTarget: null,
-  triggeredDate: null,
 };
 
 function readDailyGuard(): DailyGuard {
@@ -214,8 +211,6 @@ function readDailyGuard(): DailyGuard {
           Number.isFinite(parsed.profitTarget)
             ? parsed.profitTarget
             : null,
-        triggeredDate:
-          typeof parsed.triggeredDate === 'string' ? parsed.triggeredDate : null,
       };
     }
   } catch {
@@ -442,8 +437,10 @@ export default function GetTradingPage() {
     (typeof window !== 'undefined' && localStorage.getItem(TP_UNIT_KEY)) === 'usd' ? 'usd' : 'pct',
   );
   const [dailyGuard, setDailyGuard] = useState<DailyGuard>(readDailyGuard);
-  // While we're firing the auto-close to prevent the monitoring effect from
-  // re-entering before triggeredDate has propagated through state.
+  // Set to true while a guard-triggered close-everything sequence is in
+  // flight (cancel-orders → wait → close-positions can take a couple
+  // seconds, during which the monitor effect would otherwise re-fire on
+  // each account/position refresh and stack duplicate close requests).
   const guardFiringRef = useRef(false);
   const [signalSettings, setSignalSettings] = useState<SignalSettings>(readSignalSettings);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -1037,28 +1034,15 @@ export default function GetTradingPage() {
     }
   }, [positions, closeEverything, notify]);
 
-  // ET (America/New_York) calendar date — used by the daily guard so a fire
-  // at 9pm ET marks the trading session day, not the next-day UTC date.
-  const etToday = useCallback(() => {
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/New_York',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const parts: Record<string, string> = {};
-    for (const p of fmt.formatToParts(new Date())) parts[p.type] = p.value;
-    return `${parts.year}-${parts.month}-${parts.day}`;
-  }, []);
-
-  // Daily P&L guard monitor: on every account refresh, check if day P&L has
-  // crossed the configured loss limit or profit target. If so (and the guard
-  // is enabled, and hasn't already fired today), close everything.
-  // The guard tracks the COMBINED UNREALIZED P&L of currently-open positions
-  // only — not the full day equity change. This matches what the user reads
-  // off the "Total Unrealized" footer at the bottom of the Positions table
-  // and ignores any earlier-closed positions' realized P&L (which the user
-  // can't unwind anyway, so it shouldn't gate further closes).
+  // Open positions P&L guard monitor: on every account refresh, sum the
+  // unrealized P&L across all currently-open positions and check it against
+  // the configured loss limit / profit target. If hit, close everything.
+  // Behaves as a permanent SL/TP on the combined open positions — fires every
+  // time the threshold is reached, not once per day. The only re-entry
+  // protection is guardFiringRef, which prevents stacking a second close
+  // request while the first is still in flight (cancels + waits for held qty
+  // + parallel closes can take a couple seconds, during which the effect can
+  // legitimately re-run as account / positions update).
   useEffect(() => {
     if (!dailyGuard.enabled || !account || positions.length === 0) return;
     if (guardFiringRef.current) return;
@@ -1067,8 +1051,6 @@ export default function GetTradingPage() {
       0,
     );
     if (!Number.isFinite(openPnL)) return;
-    const today = etToday();
-    if (dailyGuard.triggeredDate === today) return;
 
     const hitLoss =
       dailyGuard.lossLimit !== null && openPnL <= dailyGuard.lossLimit;
@@ -1082,10 +1064,6 @@ export default function GetTradingPage() {
       'ok',
       `${which} hit (open positions ${openPnL >= 0 ? '+' : ''}${fmtMoney(openPnL)}). Closing all positions…`,
     );
-    // Mark triggered immediately (using the same ET date the check uses) so a
-    // follow-up refresh during the close doesn't re-enter and stack a second
-    // close-everything.
-    setDailyGuard((g) => ({ ...g, triggeredDate: today }));
     void (async () => {
       try {
         const { closed, failed } = await closeEverything();
@@ -1100,7 +1078,7 @@ export default function GetTradingPage() {
         guardFiringRef.current = false;
       }
     })();
-  }, [dailyGuard, account, positions, closeEverything, notify, etToday]);
+  }, [dailyGuard, account, positions, closeEverything, notify]);
 
   const handleSetPositionSLTP = useCallback(
     async (p: AlpacaPosition) => {
@@ -1340,12 +1318,10 @@ export default function GetTradingPage() {
           />
         </label>
         {(() => {
-          const today = etToday();
           const openPnL = positions.reduce(
             (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
             0,
           );
-          const triggeredToday = dailyGuard.triggeredDate === today;
           // Status logic (mirrors the guard effect's gate ordering so the user
           // sees the same reasoning the monitor uses).
           let status: { label: string; cls: string } = {
@@ -1353,8 +1329,7 @@ export default function GetTradingPage() {
             cls: 'gt-muted',
           };
           if (dailyGuard.enabled) {
-            if (triggeredToday) status = { label: '✓ triggered today', cls: 'gt-muted' };
-            else if (!account) status = { label: 'waiting for account', cls: 'gt-muted' };
+            if (!account) status = { label: 'waiting for account', cls: 'gt-muted' };
             else if (positions.length === 0)
               status = { label: 'idle (no open positions to close)', cls: 'gt-muted' };
             else if (dailyGuard.lossLimit === null && dailyGuard.profitTarget === null)
@@ -1372,17 +1347,6 @@ export default function GetTradingPage() {
                     {fmtMoney(openPnL)}
                   </strong>
                 </span>
-              )}
-              {triggeredToday && (
-                <button
-                  type="button"
-                  className="gt-link"
-                  onClick={() =>
-                    setDailyGuard((g) => ({ ...g, triggeredDate: null }))
-                  }
-                >
-                  reset (re-arm same day)
-                </button>
               )}
             </div>
           );
