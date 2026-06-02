@@ -1054,27 +1054,33 @@ export default function GetTradingPage() {
   // Daily P&L guard monitor: on every account refresh, check if day P&L has
   // crossed the configured loss limit or profit target. If so (and the guard
   // is enabled, and hasn't already fired today), close everything.
+  // The guard tracks the COMBINED UNREALIZED P&L of currently-open positions
+  // only — not the full day equity change. This matches what the user reads
+  // off the "Total Unrealized" footer at the bottom of the Positions table
+  // and ignores any earlier-closed positions' realized P&L (which the user
+  // can't unwind anyway, so it shouldn't gate further closes).
   useEffect(() => {
     if (!dailyGuard.enabled || !account || positions.length === 0) return;
     if (guardFiringRef.current) return;
-    const equity = parseFloat(account.equity);
-    const lastEquity = parseFloat(account.last_equity);
-    if (!Number.isFinite(equity) || !Number.isFinite(lastEquity)) return;
-    const dayPnL = equity - lastEquity;
+    const openPnL = positions.reduce(
+      (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
+      0,
+    );
+    if (!Number.isFinite(openPnL)) return;
     const today = etToday();
     if (dailyGuard.triggeredDate === today) return;
 
     const hitLoss =
-      dailyGuard.lossLimit !== null && dayPnL <= dailyGuard.lossLimit;
+      dailyGuard.lossLimit !== null && openPnL <= dailyGuard.lossLimit;
     const hitProfit =
-      dailyGuard.profitTarget !== null && dayPnL >= dailyGuard.profitTarget;
+      dailyGuard.profitTarget !== null && openPnL >= dailyGuard.profitTarget;
     if (!hitLoss && !hitProfit) return;
 
     guardFiringRef.current = true;
     const which = hitLoss ? 'loss limit' : 'profit target';
     notify(
       'ok',
-      `Daily ${which} hit (${dayPnL >= 0 ? '+' : ''}${fmtMoney(dayPnL)}). Closing all positions…`,
+      `${which} hit (open positions ${openPnL >= 0 ? '+' : ''}${fmtMoney(openPnL)}). Closing all positions…`,
     );
     // Mark triggered immediately (using the same ET date the check uses) so a
     // follow-up refresh during the close doesn't re-enter and stack a second
@@ -1295,9 +1301,10 @@ export default function GetTradingPage() {
               setDailyGuard((g) => ({ ...g, enabled: e.target.checked }))
             }
           />
-          <strong>Daily P&amp;L guard</strong>
+          <strong>Open positions P&amp;L guard</strong>
           <span className="gt-muted">
-            auto-close all positions when day P&amp;L hits either limit
+            auto-close all positions when their combined unrealized P&amp;L hits
+            either limit (once per day max)
           </span>
         </label>
         <label className="gt-field gt-inline-field">
@@ -1334,9 +1341,10 @@ export default function GetTradingPage() {
         </label>
         {(() => {
           const today = etToday();
-          const dayPnL = account
-            ? parseFloat(account.equity) - parseFloat(account.last_equity)
-            : NaN;
+          const openPnL = positions.reduce(
+            (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
+            0,
+          );
           const triggeredToday = dailyGuard.triggeredDate === today;
           // Status logic (mirrors the guard effect's gate ordering so the user
           // sees the same reasoning the monitor uses).
@@ -1356,12 +1364,12 @@ export default function GetTradingPage() {
           return (
             <div className="gt-guard-status">
               <span className={status.cls}>{status.label}</span>
-              {dailyGuard.enabled && account && Number.isFinite(dayPnL) && (
+              {dailyGuard.enabled && positions.length > 0 && Number.isFinite(openPnL) && (
                 <span className="gt-muted">
-                  · current day P&amp;L (what's tracked):{' '}
-                  <strong className={dayPnL >= 0 ? 'pos' : 'neg'}>
-                    {dayPnL >= 0 ? '+' : ''}
-                    {fmtMoney(dayPnL)}
+                  · open positions unrealized (what's tracked):{' '}
+                  <strong className={openPnL >= 0 ? 'pos' : 'neg'}>
+                    {openPnL >= 0 ? '+' : ''}
+                    {fmtMoney(openPnL)}
                   </strong>
                 </span>
               )}
