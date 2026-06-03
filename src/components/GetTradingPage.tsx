@@ -1233,23 +1233,45 @@ export default function GetTradingPage() {
           value={fmtMoney(account?.buying_power)}
         />
         <AccountStat label="Cash" value={fmtMoney(account?.cash)} />
-        <AccountStat
-          label="Day P&L"
-          value={
-            account
-              ? fmtMoney(
-                  parseFloat(account.equity) - parseFloat(account.last_equity),
-                )
-              : '—'
+        {(() => {
+          // Compute "Today's P&L" as realized-today + open-unrealized so the
+          // headline number matches the user's mental model: "what have I
+          // actually made or lost from my trading activity today?"
+          // Alpaca's raw equity − last_equity is shown in the tooltip for
+          // reference but isn't the headline — it can diverge wildly when
+          // closes happen after-hours (they're past the 4pm last_equity
+          // snapshot, so Alpaca counts them in TODAY's equity change even
+          // though their fill date is yesterday).
+          const today = etParts(new Date().toISOString()).date;
+          const pnlMap = computeRealizedPnL(orders);
+          let realizedToday = 0;
+          for (const o of orders) {
+            if (!o.filled_at) continue;
+            if (etParts(o.filled_at).date !== today) continue;
+            const v = pnlMap.get(o.id);
+            if (typeof v === 'number') realizedToday += v;
           }
-          tone={
-            account &&
-            parseFloat(account.equity) - parseFloat(account.last_equity) >= 0
-              ? 'pos'
-              : 'neg'
-          }
-          tooltip="Alpaca's raw metric: equity now − equity at yesterday's 4pm ET close. Includes overnight gaps on positions held through close, fills that happened pre-market, and unrealized changes on currently-open positions. Use Realized today + Open unrealized below for a clearer picture."
-        />
+          const openUnrealized = positions.reduce(
+            (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
+            0,
+          );
+          const todaysPnL = realizedToday + openUnrealized;
+          const alpacaDayPnL = account
+            ? parseFloat(account.equity) - parseFloat(account.last_equity)
+            : NaN;
+          return (
+            <AccountStat
+              label="Day P&L"
+              value={`${todaysPnL >= 0 ? '+' : ''}${fmtMoney(todaysPnL)}`}
+              tone={todaysPnL >= 0 ? 'pos' : 'neg'}
+              tooltip={
+                'Today\'s realized P&L (FIFO-matched fills with ET date = today) PLUS current open-positions unrealized. ' +
+                `Matches your trading activity for today.\n\nFor reference, Alpaca's raw equity − last_equity is ${Number.isFinite(alpacaDayPnL) ? fmtMoney(alpacaDayPnL) : '—'}. ` +
+                'That number can diverge from this one when fills happen after 4pm ET (yesterday\'s after-hours closes show up in Alpaca\'s number under "today" because last_equity was snapshotted before them) or when positions are held through close (the 4pm-marked value vs the next fill price shows up as a gap).'
+              }
+            />
+          );
+        })()}
         <AccountStat
           label="Realized today"
           value={(() => {
