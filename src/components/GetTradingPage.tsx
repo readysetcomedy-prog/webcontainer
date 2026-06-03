@@ -26,6 +26,7 @@ import type {
 import BacktestPanel from './BacktestPanel';
 import PortfolioBacktestPanel from './PortfolioBacktestPanel';
 import CandleChart from './CandleChart';
+import { etParts } from '../lib/backtest';
 
 const ENV_KEY = 'gettrading.env';
 const PROFILES_KEY = 'gettrading.profiles';
@@ -1247,6 +1248,57 @@ export default function GetTradingPage() {
               ? 'pos'
               : 'neg'
           }
+          tooltip="Alpaca's raw metric: equity now − equity at yesterday's 4pm ET close. Includes overnight gaps on positions held through close, fills that happened pre-market, and unrealized changes on currently-open positions. Use Realized today + Open unrealized below for a clearer picture."
+        />
+        <AccountStat
+          label="Realized today"
+          value={(() => {
+            const today = etParts(new Date().toISOString()).date;
+            const pnlMap = computeRealizedPnL(orders);
+            let sum = 0;
+            for (const o of orders) {
+              if (!o.filled_at) continue;
+              if (etParts(o.filled_at).date !== today) continue;
+              const v = pnlMap.get(o.id);
+              if (typeof v === 'number') sum += v;
+            }
+            return `${sum >= 0 ? '+' : ''}${fmtMoney(sum)}`;
+          })()}
+          tone={(() => {
+            const today = etParts(new Date().toISOString()).date;
+            const pnlMap = computeRealizedPnL(orders);
+            let sum = 0;
+            for (const o of orders) {
+              if (!o.filled_at) continue;
+              if (etParts(o.filled_at).date !== today) continue;
+              const v = pnlMap.get(o.id);
+              if (typeof v === 'number') sum += v;
+            }
+            return sum >= 0 ? 'pos' : 'neg';
+          })()}
+          tooltip="Sum of realized P&L on every fill whose ET date is today. Computed via FIFO matching across the full orders list — same number the Orders panel sums for filtered closes."
+        />
+        <AccountStat
+          label="Open unrealized"
+          value={(() => {
+            if (positions.length === 0) return '—';
+            const sum = positions.reduce(
+              (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
+              0,
+            );
+            return `${sum >= 0 ? '+' : ''}${fmtMoney(sum)}`;
+          })()}
+          tone={
+            positions.length === 0
+              ? undefined
+              : positions.reduce(
+                  (s, p) => s + (parseFloat(p.unrealized_pl) || 0),
+                  0,
+                ) >= 0
+              ? 'pos'
+              : 'neg'
+          }
+          tooltip="Sum of unrealized P&L across currently-open positions. Matches the totals row at the bottom of the Positions table. This is also the number the open-positions P&L guard tracks."
         />
         {activeProfile.startingCash && account ? (
           <AccountStat
@@ -1661,14 +1713,19 @@ function AccountStat({
   label,
   value,
   tone,
+  tooltip,
 }: {
   label: string;
   value: string;
   tone?: 'pos' | 'neg';
+  tooltip?: string;
 }) {
   return (
-    <div className="gt-stat">
-      <div className="gt-stat-label">{label}</div>
+    <div className="gt-stat" title={tooltip}>
+      <div className="gt-stat-label">
+        {label}
+        {tooltip ? <span className="gt-stat-info"> ⓘ</span> : null}
+      </div>
       <div className={`gt-stat-value ${tone ?? ''}`}>{value}</div>
     </div>
   );

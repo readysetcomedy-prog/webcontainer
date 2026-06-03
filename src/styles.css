@@ -706,6 +706,17 @@ html, body, #root {
   border-top: 1px solid var(--border);
 }
 
+.gt-stat-info {
+  color: var(--fg-dim);
+  font-size: 10px;
+  cursor: help;
+  opacity: 0.5;
+}
+
+.gt-stat[title]:hover .gt-stat-info {
+  opacity: 1;
+}
+
 .gt-momentum {
   margin-bottom: 14px;
   padding: 10px 14px;
