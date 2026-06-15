@@ -1525,31 +1525,78 @@ export default function App() {
         const pkgFile = files.find((f) => f.path === 'package.json');
         let deployFiles: FileEntry[] = files;
         if (pkgFile) {
+          let deps: Record<string, string> = {};
+          let scripts: Record<string, string> = {};
           try {
             const pkg = JSON.parse(textOf(pkgFile.content));
-            if (pkg.scripts?.build) {
-              log('$ npm run build', 'info');
-              const build = await c.spawn('npm', ['run', 'build']);
-              pipeProcess(build);
-              const bcode = await build.exit;
-              if (bcode !== 0) throw new Error(`build exited ${bcode}`);
-              for (const dir of ['dist', 'build', 'out', 'public']) {
-                try {
-                  await c.fs.readdir(`/${dir}`);
-                  const out = await readAllFiles(c, `/${dir}`);
-                  deployFiles = out.map((f) => ({
-                    ...f,
-                    path: f.path.replace(new RegExp(`^${dir}/`), ''),
-                  }));
-                  log(`Deploying ${deployFiles.length} files from /${dir}`, 'info');
-                  break;
-                } catch {
-                  // directory not present, try next
-                }
-              }
-            }
+            deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+            scripts = pkg.scripts ?? {};
           } catch (e) {
-            log(`Build skipped: ${(e as Error).message}`, 'err');
+            throw new Error(`Could not parse package.json: ${(e as Error).message}`);
+          }
+
+          // Match runDev's framework detection. Expo Router web is built with
+          // `expo export -p web` (output → dist/), NOT `npm run build`. Most
+          // Expo templates have no build script, or a stray Vite build script
+          // from the template — in either case the old generic path would skip
+          // the build and upload raw source, or fall through to a stray
+          // public/ folder, producing a "deployed but blank" site.
+          const isExpo = !!deps.expo || !!deps['expo-router'];
+
+          let ranBuild = false;
+          let outputDirs: string[];
+          if (isExpo) {
+            log('$ npx expo export -p web', 'info');
+            const build = await c.spawn('npx', ['expo', 'export', '-p', 'web']);
+            pipeProcess(build);
+            const bcode = await build.exit;
+            if (bcode !== 0) throw new Error(`expo export exited ${bcode}`);
+            ranBuild = true;
+            outputDirs = ['dist'];
+          } else if (scripts.build) {
+            log('$ npm run build', 'info');
+            const build = await c.spawn('npm', ['run', 'build']);
+            pipeProcess(build);
+            const bcode = await build.exit;
+            if (bcode !== 0) throw new Error(`build exited ${bcode}`);
+            ranBuild = true;
+            // Don't probe public/ here — for a project that builds, public/ is
+            // a source asset dir, not the deployable output. Falling through to
+            // it was a silent wrong-folder trap.
+            outputDirs = ['dist', 'build', 'out'];
+          } else {
+            // No build step (plain static site): serve public/ if present,
+            // otherwise the raw project files.
+            outputDirs = ['public'];
+          }
+
+          let foundOutput = false;
+          for (const dir of outputDirs) {
+            try {
+              await c.fs.readdir(`/${dir}`);
+              const out = await readAllFiles(c, `/${dir}`);
+              if (out.length === 0) continue;
+              deployFiles = out.map((f) => ({
+                ...f,
+                path: f.path.replace(new RegExp(`^${dir}/`), ''),
+              }));
+              log(`Deploying ${deployFiles.length} files from /${dir}`, 'info');
+              foundOutput = true;
+              break;
+            } catch {
+              // directory not present, try next
+            }
+          }
+          // If a build ran but produced no output dir, that's a real failure.
+          // Do NOT silently upload raw source and report success — that's the
+          // exact "deployed but broken" bug. Surface it so the deploy aborts.
+          if (ranBuild && !foundOutput) {
+            throw new Error(
+              `Build finished but no output found in: ${outputDirs.join(', ')}/. ` +
+                (isExpo
+                  ? 'Expo web export should produce dist/ — check app.json has a web config (e.g. "web": { "bundler": "metro", "output": "single" }) and that expo-router web support is installed.'
+                  : 'Check that your build script writes to dist/, build/, or out/.'),
+            );
           }
         }
         setStatus('uploading to Netlify…');
