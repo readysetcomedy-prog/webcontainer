@@ -1590,6 +1590,50 @@ export default function App() {
           // public/ folder, producing a "deployed but blank" site.
           const isExpo = !!deps.expo || !!deps['expo-router'];
 
+          // Deploy must be self-sufficient: pull → deploy shouldn't require a
+          // dev-server Run first just to get dependencies installed (that's
+          // the heavy path we want mobile users to be able to skip). If
+          // node_modules is missing — or belongs to a different project than
+          // the one being deployed — install before building.
+          const projectId = activeProjectIdRef.current;
+          const staleTree =
+            !!projectId && installedForProjectRef.current !== null &&
+            installedForProjectRef.current !== projectId;
+          let needInstall = installedForProjectRef.current !== projectId;
+          if (!needInstall) {
+            try {
+              await c.fs.readdir('/node_modules');
+            } catch {
+              needInstall = true;
+            }
+          }
+          if (needInstall) {
+            if (staleTree) {
+              // node_modules belongs to a different project — wipe it like
+              // runDev does, or npm reconciles against the wrong lockfile.
+              log('$ rm -rf /node_modules /package-lock.json', 'info');
+              for (const p of ['/node_modules', '/package-lock.json']) {
+                try {
+                  const rm = await c.spawn('rm', ['-rf', p]);
+                  await rm.exit;
+                } catch {
+                  // already absent
+                }
+              }
+            }
+            setStatus('installing dependencies for deploy…');
+            const installArgs = isExpo
+              ? ['install', '--legacy-peer-deps']
+              : ['install'];
+            log(`$ npm ${installArgs.join(' ')}`, 'info');
+            const install = await c.spawn('npm', installArgs);
+            pipeProcess(install);
+            const icode = await install.exit;
+            if (icode !== 0) throw new Error(`npm install exited ${icode}`);
+            installedForProjectRef.current = projectId ?? null;
+          }
+
+          setStatus('building for deploy…');
           let ranBuild = false;
           let outputDirs: string[];
           if (isExpo) {
