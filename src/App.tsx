@@ -50,6 +50,29 @@ import { getTourSteps } from './lib/tourSteps';
 import type { ModelPreset } from './lib/userSecrets';
 import { AgentClient, type AgentInfo } from './lib/agentClient';
 
+// VT100 handling for the log panel. CSI = color/cursor sequences
+// (ESC[…letter), OSC = title-set sequences (ESC]…BEL). REDRAW matches the
+// in-place progress patterns bundlers emit: carriage return without
+// newline, cursor up/left/column (A/D/G), or erase-line/screen (K/J).
+/* eslint-disable no-control-regex */
+const TERMINAL_CSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+const TERMINAL_OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g;
+const TERMINAL_REDRAW_RE = /\r(?!\n)|\x1b\[\d*[ADG]|\x1b\[[012]?[KJ]/;
+const sanitizeTerminalChunk = (s: string): string =>
+  s
+    .replace(TERMINAL_OSC_RE, '')
+    .replace(TERMINAL_CSI_RE, '')
+    .replace(/\x1b/g, '')
+    .replace(/[\x07\x08]/g, '')
+    // Carriage-return semantics per line: keep only what's after the last \r.
+    .split('\n')
+    .map((line) => {
+      const i = line.lastIndexOf('\r');
+      return i >= 0 ? line.slice(i + 1) : line;
+    })
+    .join('\n');
+/* eslint-enable no-control-regex */
+
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
 
@@ -439,18 +462,42 @@ export default function App() {
     };
   }, [log]);
 
+  // Process output arrives with raw VT100 control sequences — Metro/Expo
+  // redraw their progress bar in place using cursor-up (ESC[1A), erase-line
+  // (ESC[2K), and carriage returns. We don't emulate a terminal; instead:
+  // strip the codes for display, and when a chunk is an in-place redraw,
+  // REPLACE the previous redraw line rather than appending. Progress then
+  // renders as one line updating in place instead of hundreds of stacked
+  // "[2K[1A[22m…" blobs.
+  const appendTerminalChunk = useCallback(
+    (raw: string, kind: LogLine['kind']) => {
+      const isRedraw = TERMINAL_REDRAW_RE.test(raw);
+      const text = sanitizeTerminalChunk(raw);
+      // Pure cursor-control chunks (only erases/moves) have nothing to show.
+      if (isRedraw && !/\S/.test(text)) return;
+      setLogs((prev) => {
+        const last = prev[prev.length - 1];
+        if (isRedraw && last && last.kind === kind && last.redraw) {
+          return [...prev.slice(0, -1), { ...last, text }];
+        }
+        return [...prev, { id: ++logIdRef.current, text, kind, redraw: isRedraw }];
+      });
+    },
+    [],
+  );
+
   const pipeProcess = useCallback(
     (p: WebContainerProcess, kind: LogLine['kind'] = 'out') => {
       p.output.pipeTo(
         new WritableStream({
           write(chunk) {
             const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-            setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind }]);
+            appendTerminalChunk(text, kind);
           },
         }),
       );
     },
-    [],
+    [appendTerminalChunk],
   );
 
   // Bundler / dev-server error surfaced above the preview. Stripped of
@@ -473,7 +520,7 @@ export default function App() {
         new WritableStream({
           write(chunk) {
             const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-            setLogs((prev) => [...prev, { id: ++logIdRef.current, text, kind: 'out' }]);
+            appendTerminalChunk(text, 'out');
             buffer = (buffer + stripAnsi(text)).slice(-4000); // keep last few KB
             if (ERROR_HINT.test(buffer)) {
               // Grab the error line + the next ~6 lines of context.
@@ -487,7 +534,7 @@ export default function App() {
         }),
       );
     },
-    [],
+    [appendTerminalChunk],
   );
 
   // Stable ref so callers (including effects) can rely on runDev's
