@@ -50,27 +50,16 @@ import { getTourSteps } from './lib/tourSteps';
 import type { ModelPreset } from './lib/userSecrets';
 import { AgentClient, type AgentInfo } from './lib/agentClient';
 
-// VT100 handling for the log panel. CSI = color/cursor sequences
-// (ESC[…letter), OSC = title-set sequences (ESC]…BEL). REDRAW matches the
-// in-place progress patterns bundlers emit: carriage return without
-// newline, cursor up/left/column (A/D/G), or erase-line/screen (K/J).
+// VT100 tokens for the log panel's line-oriented terminal emulation.
+// TOKEN matches one complete control unit: a CSI sequence (ESC[…letter),
+// an OSC sequence (ESC]…BEL / ESC\), or a line move (\r\n, \r, \n).
+// CARRY matches an INCOMPLETE trailing sequence — a lone ESC, a partial
+// CSI without its final letter, or a bare \r that might pair with a \n
+// in the next chunk — which must be held back and prepended to the next
+// chunk, because process streams split escape sequences arbitrarily.
 /* eslint-disable no-control-regex */
-const TERMINAL_CSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
-const TERMINAL_OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g;
-const TERMINAL_REDRAW_RE = /\r(?!\n)|\x1b\[\d*[ADG]|\x1b\[[012]?[KJ]/;
-const sanitizeTerminalChunk = (s: string): string =>
-  s
-    .replace(TERMINAL_OSC_RE, '')
-    .replace(TERMINAL_CSI_RE, '')
-    .replace(/\x1b/g, '')
-    .replace(/[\x07\x08]/g, '')
-    // Carriage-return semantics per line: keep only what's after the last \r.
-    .split('\n')
-    .map((line) => {
-      const i = line.lastIndexOf('\r');
-      return i >= 0 ? line.slice(i + 1) : line;
-    })
-    .join('\n');
+const TERM_TOKEN_RE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\r\n|\r|\n/g;
+const TERM_CARRY_RE = /(?:\x1b(?:\[[0-9;?]*)?|\x1b\][^\x07\x1b]*|\r)$/;
 /* eslint-enable no-control-regex */
 
 const textOf = (c: string | Uint8Array): string =>
@@ -462,42 +451,122 @@ export default function App() {
     };
   }, [log]);
 
-  // Process output arrives with raw VT100 control sequences — Metro/Expo
-  // redraw their progress bar in place using cursor-up (ESC[1A), erase-line
-  // (ESC[2K), and carriage returns. We don't emulate a terminal; instead:
-  // strip the codes for display, and when a chunk is an in-place redraw,
-  // REPLACE the previous redraw line rather than appending. Progress then
-  // renders as one line updating in place instead of hundreds of stacked
-  // "[2K[1A[22m…" blobs.
-  const appendTerminalChunk = useCallback(
-    (raw: string, kind: LogLine['kind']) => {
-      const isRedraw = TERMINAL_REDRAW_RE.test(raw);
-      const text = sanitizeTerminalChunk(raw);
-      // Pure cursor-control chunks (only erases/moves) have nothing to show.
-      if (isRedraw && !/\S/.test(text)) return;
-      setLogs((prev) => {
-        const last = prev[prev.length - 1];
-        if (isRedraw && last && last.kind === kind && last.redraw) {
-          return [...prev.slice(0, -1), { ...last, text }];
+  // Line-oriented terminal emulation, one stateful sink per process.
+  // Bundler/npm output redraws progress in place with VT100 sequences
+  // (cursor-up ESC[1A, erase-line ESC[2K, carriage returns) and the stream
+  // chunks split those sequences ARBITRARILY — a naive per-chunk stripper
+  // leaks fragments like "22m" when ESC[2 lands in one chunk and 2m in the
+  // next. The sink carries incomplete trailing sequences between chunks,
+  // tracks which visual line the cursor is on, and edits existing log
+  // entries in place for redraws — so a progress bar renders as one line
+  // updating in place, exactly like a real terminal.
+  const makeTerminalSink = useCallback(
+    (kind: LogLine['kind']) => {
+      let carry = '';
+      const lineIds: number[] = [];
+      const lineTexts = new Map<number, string>();
+      let openIndex = 0;
+      let openText = '';
+
+      const ensureEntry = (): number => {
+        while (lineIds.length <= openIndex) {
+          const id = ++logIdRef.current;
+          lineIds.push(id);
+          lineTexts.set(id, '');
+          setLogs((prev) => [...prev, { id, text: '', kind }]);
         }
-        return [...prev, { id: ++logIdRef.current, text, kind, redraw: isRedraw }];
-      });
+        return lineIds[openIndex];
+      };
+      const flush = () => {
+        const id = ensureEntry();
+        if (lineTexts.get(id) === openText) return;
+        lineTexts.set(id, openText);
+        const snapshot = openText;
+        setLogs((prev) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].id === id) {
+              const copy = prev.slice();
+              copy[i] = { ...copy[i], text: snapshot };
+              return copy;
+            }
+          }
+          return prev;
+        });
+      };
+      const moveTo = (index: number) => {
+        flush();
+        openIndex = Math.max(0, index);
+        const id = lineIds[openIndex];
+        openText = id !== undefined ? lineTexts.get(id) ?? '' : '';
+      };
+      const writeText = (t: string) => {
+        if (!t) return;
+        for (const ch of t) {
+          if (ch === '\x08') openText = openText.slice(0, -1);
+          else if (ch === '\x07' || ch === '\x1b') continue;
+          else openText += ch;
+        }
+        flush();
+      };
+
+      return (chunkText: string) => {
+        const input = carry + chunkText;
+        const held = input.match(TERM_CARRY_RE);
+        const src = held ? input.slice(0, input.length - held[0].length) : input;
+        carry = held ? held[0] : '';
+        if (!src) return;
+
+        let last = 0;
+        let m: RegExpExecArray | null;
+        TERM_TOKEN_RE.lastIndex = 0;
+        while ((m = TERM_TOKEN_RE.exec(src))) {
+          writeText(src.slice(last, m.index));
+          last = m.index + m[0].length;
+          const tok = m[0];
+          if (tok === '\n' || tok === '\r\n') {
+            moveTo(openIndex + 1);
+          } else if (tok === '\r') {
+            // Cursor to column 0 — following text overwrites the line.
+            openText = '';
+          } else if (tok.charCodeAt(0) === 0x1b && tok[1] === '[') {
+            const final = tok[tok.length - 1];
+            const n = parseInt(tok.slice(2, -1), 10) || 1;
+            if (final === 'A') moveTo(openIndex - n);
+            else if (final === 'B') moveTo(openIndex + n);
+            else if (final === 'K') {
+              openText = '';
+              flush();
+            } else if (final === 'D' || final === 'G') {
+              // Column moves — progress bars use these like \r.
+              openText = '';
+            }
+            // 'm' (styles), 'J', 'H', private modes: no visual effect here.
+          }
+          // OSC (title set): ignored.
+        }
+        writeText(src.slice(last));
+      };
     },
     [],
   );
 
   const pipeProcess = useCallback(
     (p: WebContainerProcess, kind: LogLine['kind'] = 'out') => {
+      const sink = makeTerminalSink(kind);
+      const decoder = new TextDecoder();
       p.output.pipeTo(
         new WritableStream({
           write(chunk) {
-            const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-            appendTerminalChunk(text, kind);
+            sink(
+              typeof chunk === 'string'
+                ? chunk
+                : decoder.decode(chunk, { stream: true }),
+            );
           },
         }),
       );
     },
-    [appendTerminalChunk],
+    [makeTerminalSink],
   );
 
   // Bundler / dev-server error surfaced above the preview. Stripped of
@@ -516,11 +585,16 @@ export default function App() {
   const pipeDev = useCallback(
     (p: WebContainerProcess) => {
       let buffer = '';
+      const sink = makeTerminalSink('out');
+      const decoder = new TextDecoder();
       p.output.pipeTo(
         new WritableStream({
           write(chunk) {
-            const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-            appendTerminalChunk(text, 'out');
+            const text =
+              typeof chunk === 'string'
+                ? chunk
+                : decoder.decode(chunk, { stream: true });
+            sink(text);
             buffer = (buffer + stripAnsi(text)).slice(-4000); // keep last few KB
             if (ERROR_HINT.test(buffer)) {
               // Grab the error line + the next ~6 lines of context.
@@ -534,7 +608,7 @@ export default function App() {
         }),
       );
     },
-    [appendTerminalChunk],
+    [makeTerminalSink],
   );
 
   // Stable ref so callers (including effects) can rely on runDev's
