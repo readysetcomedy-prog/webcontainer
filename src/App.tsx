@@ -378,16 +378,16 @@ export default function App() {
   );
 
   useEffect(() => {
-    // WebContainer's npm install hangs forever on mobile browsers (Chrome
-    // Android, Samsung Internet). Skip the boot — otherwise the terminal
-    // streams install spam indefinitely and the preview never resolves.
+    // Heads-up on small screens: WebContainer works in modern mobile Chrome,
+    // but big npm installs can hit mobile memory limits. Warn and continue —
+    // don't hard-block. (Previously this gate skipped the boot entirely,
+    // which also silently disabled Deploy on phones since deploy() needs the
+    // container. Let it try; real failures surface in the terminal.)
     if (window.matchMedia('(max-width: 768px)').matches) {
       log(
-        "Run/Preview isn't supported on phones — WebContainer can't finish npm install on mobile browsers. Open this on desktop to run a dev server. You can still browse, edit, and push code from here.",
+        'Mobile detected — Run/Preview is experimental on phones. Large npm installs may run out of memory; if an install hangs, try desktop. Everything else (edit, deploy, push) works here.',
         'info',
       );
-      setStatus('mobile: edit only');
-      return;
     }
     if (!globalThis.crossOriginIsolated) {
       const host = window.location.hostname;

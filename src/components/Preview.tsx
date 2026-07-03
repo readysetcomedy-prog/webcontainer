@@ -249,9 +249,7 @@ export default function Preview({
       <div className="preview-frames">
         {tabs.length === 0 && (
           <div className="preview-empty">
-            {status === 'mobile: edit only'
-              ? 'Run / Preview is desktop-only. WebContainer can’t install dependencies on mobile browsers — open this site on a desktop to run a dev server. You can still browse files and edit code here.'
-              : 'Preview will appear here once the dev server is running.'}
+            Preview will appear here once the dev server is running.
           </div>
         )}
         {tabs.map((t) => (
