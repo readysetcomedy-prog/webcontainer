@@ -4973,14 +4973,21 @@ button.primary:hover:not(:disabled) {
     max-height: none;
   }
 
-  /* Popovers: fit the screen, anchored to the top-right but width-capped */
+  /* Popovers: escape the toolbar's overflow clipping. On mobile the toolbar
+     is overflow-x:auto / overflow-y:hidden, which clips any absolutely-
+     positioned child to the toolbar's ~48px strip — the deploy popover
+     rendered as a single clipped input row. position:fixed sizes against
+     the viewport instead, immune to the toolbar's scroll/clip. */
   .popover {
+    position: fixed;
+    top: 56px;
     right: 8px;
     left: 8px;
     width: auto;
     max-width: none;
-    max-height: calc(100vh - 64px);
+    max-height: calc(100vh - 72px);
     overflow-y: auto;
+    z-index: 1000;
   }
   .gh-panel,
   .env-panel,
