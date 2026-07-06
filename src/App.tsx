@@ -274,6 +274,8 @@ export default function App() {
   );
   const logIdRef = useRef(0);
   const containerRef = useRef<WebContainer | null>(null);
+  const uploadFilesInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadFolderInputRef = useRef<HTMLInputElement | null>(null);
   const devProcRef = useRef<WebContainerProcess | null>(null);
   const activeProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1506,6 +1508,126 @@ export default function App() {
     [activePath, files, agentMode, currentLocalPath, isMobile, log],
   );
 
+  // Bulk-import local files into the project — used by the Files sidebar's
+  // upload buttons. Entries replace same-path files, get dirty-marked (so
+  // Push includes them), and are written through to the running filesystem
+  // (so Run/Deploy see them immediately).
+  const importEntries = useCallback(
+    async (entries: FileEntry[]) => {
+      if (entries.length === 0) {
+        log('Nothing to import.', 'info');
+        return;
+      }
+      setFiles((prev) => {
+        const map = new Map(prev.map((f) => [f.path, f] as const));
+        for (const e of entries) map.set(e.path, e);
+        return [...map.values()];
+      });
+      setDirtyPaths((prev) => {
+        const next = new Set(prev);
+        for (const e of entries) next.add(e.path);
+        return next;
+      });
+      if (agentMode && currentLocalPath) {
+        const base = currentLocalPath.replace(/\/$/, '');
+        for (const e of entries) {
+          if (typeof e.content !== 'string') {
+            log(`Skipped binary write via local agent: ${e.path}`, 'err');
+            continue;
+          }
+          try {
+            await agentRef.current?.writeFile(`${base}/${e.path}`, e.content);
+          } catch (err) {
+            log(`Write failed for ${e.path}: ${(err as Error).message}`, 'err');
+          }
+        }
+      } else {
+        const c = containerRef.current;
+        if (c) {
+          for (const e of entries) {
+            try {
+              const dir = e.path.includes('/')
+                ? e.path.slice(0, e.path.lastIndexOf('/'))
+                : '';
+              if (dir) await c.fs.mkdir(`/${dir}`, { recursive: true });
+              await c.fs.writeFile(`/${e.path}`, e.content);
+            } catch (err) {
+              log(`Write failed for ${e.path}: ${(err as Error).message}`, 'err');
+            }
+          }
+        }
+      }
+      log(`Imported ${entries.length} file${entries.length === 1 ? '' : 's'}.`, 'info');
+    },
+    [agentMode, currentLocalPath, log],
+  );
+
+  const importLocalFiles = useCallback(
+    async (picked: File[]) => {
+      const SKIP_RE = /(^|\/)(node_modules|\.git)(\/|$)/;
+      const MAX_FILE_BYTES = 10 * 1024 * 1024;
+      const MAX_ENTRIES = 2000;
+      try {
+        setStatus('importing files…');
+        // A single .zip extracts as a tree — the reliable path on phones,
+        // where directory pickers mostly don't work.
+        if (picked.length === 1 && /\.zip$/i.test(picked[0].name)) {
+          const zip = await JSZip.loadAsync(await picked[0].arrayBuffer());
+          const out: FileEntry[] = [];
+          for (const name of Object.keys(zip.files)) {
+            const zf = zip.files[name];
+            if (zf.dir) continue;
+            const path = name.replace(/^\/+/, '');
+            if (!path || SKIP_RE.test(path)) continue;
+            if (out.length >= MAX_ENTRIES) {
+              log(`Import capped at ${MAX_ENTRIES} files — zip has more.`, 'err');
+              break;
+            }
+            const content = isBinaryPath(path)
+              ? await zf.async('uint8array')
+              : await zf.async('string');
+            out.push({ path, content });
+          }
+          await importEntries(out);
+          return;
+        }
+        const out: FileEntry[] = [];
+        let skipped = 0;
+        for (const file of picked) {
+          const rel = (file as File & { webkitRelativePath?: string })
+            .webkitRelativePath;
+          const path = (rel && rel.length > 0 ? rel : file.name).replace(/^\/+/, '');
+          if (!path || SKIP_RE.test(path)) {
+            skipped++;
+            continue;
+          }
+          if (file.size > MAX_FILE_BYTES) {
+            log(`Skipped ${path} (larger than 10 MB).`, 'err');
+            skipped++;
+            continue;
+          }
+          if (out.length >= MAX_ENTRIES) {
+            log(`Import capped at ${MAX_ENTRIES} files.`, 'err');
+            break;
+          }
+          const content = isBinaryPath(path)
+            ? new Uint8Array(await file.arrayBuffer())
+            : await file.text();
+          out.push({ path, content });
+        }
+        if (skipped > 0) {
+          log(`Skipped ${skipped} file(s) (node_modules/.git or oversized).`, 'info');
+        }
+        await importEntries(out);
+      } catch (e) {
+        log(`Import failed: ${(e as Error).message}`, 'err');
+      } finally {
+        setStatus('ready');
+      }
+    },
+    [importEntries, log],
+  );
+
   const downloadProject = useCallback(async () => {
     const c = containerRef.current;
     if (!c) return;
@@ -2081,7 +2203,44 @@ export default function App() {
                 >
                   + folder
                 </button>
+                <button
+                  className="link-button"
+                  onClick={() => uploadFilesInputRef.current?.click()}
+                  title="Upload files from your computer — a single .zip is extracted as a folder tree"
+                >
+                  ⇪ files
+                </button>
+                <button
+                  className="link-button"
+                  onClick={() => uploadFolderInputRef.current?.click()}
+                  title="Upload an entire folder (desktop browsers; on phones upload a .zip instead)"
+                >
+                  ⇪ folder
+                </button>
               </span>
+              <input
+                ref={uploadFilesInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const picked = e.target.files;
+                  if (picked && picked.length > 0) importLocalFiles(Array.from(picked));
+                  e.target.value = '';
+                }}
+              />
+              <input
+                ref={uploadFolderInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                {...({ webkitdirectory: '' } as Record<string, string>)}
+                onChange={(e) => {
+                  const picked = e.target.files;
+                  if (picked && picked.length > 0) importLocalFiles(Array.from(picked));
+                  e.target.value = '';
+                }}
+              />
             </div>
             <div data-tour="file-tree">
               <FileTree
