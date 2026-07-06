@@ -2940,6 +2940,26 @@ button.primary:hover:not(:disabled) {
   flex-direction: column;
 }
 
+.sidebar-divider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-divider-actions {
+  display: inline-flex;
+  gap: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sidebar-divider-actions .link-button {
+  font-size: 11px;
+  /* Comfortable tap targets on phones without inflating the row */
+  padding: 4px 2px;
+  margin: -4px 0;
+}
+
 .sidebar-divider {
   font-size: 10px;
   text-transform: uppercase;

@@ -1441,6 +1441,71 @@ export default function App() {
     [activeFile, currentLocalPath, agentMode, log],
   );
 
+  // Create a new file or folder from the Files sidebar. Folders are
+  // materialized as <folder>/.gitkeep — empty directories can't exist in
+  // the files state or in git, so a keeper file is the standard way to
+  // make one real. The new entry goes through the same persistence path
+  // as edits: files state + dirtyPaths + container (or local agent) write.
+  const createEntry = useCallback(
+    (entryKind: 'file' | 'folder') => {
+      const dirOfActive =
+        activePath && activePath.includes('/')
+          ? activePath.slice(0, activePath.lastIndexOf('/') + 1)
+          : '';
+      const raw = prompt(
+        entryKind === 'file'
+          ? 'New file path (e.g. src/components/Button.tsx):'
+          : 'New folder path (e.g. src/utils):',
+        dirOfActive,
+      );
+      if (raw === null) return;
+      const clean = raw.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+      if (!clean) return;
+      if (clean.split('/').some((seg) => !seg || seg === '.' || seg === '..')) {
+        log(`Invalid path: ${raw}`, 'err');
+        return;
+      }
+      const path = entryKind === 'folder' ? `${clean}/.gitkeep` : clean;
+      if (files.some((f) => f.path === path)) {
+        log(`${path} already exists.`, 'err');
+        setActivePath(path);
+        return;
+      }
+      setFiles((prev) => [...prev, { path, content: '' }]);
+      setDirtyPaths((prev) => {
+        const next = new Set(prev);
+        next.add(path);
+        return next;
+      });
+      if (agentMode && currentLocalPath) {
+        agentRef.current
+          ?.writeFile(`${currentLocalPath.replace(/\/$/, '')}/${path}`, '')
+          .catch((e) => log(`Write failed: ${(e as Error).message}`, 'err'));
+      } else {
+        const c = containerRef.current;
+        if (c) {
+          const dir = path.includes('/')
+            ? path.slice(0, path.lastIndexOf('/'))
+            : '';
+          void (async () => {
+            try {
+              if (dir) await c.fs.mkdir(`/${dir}`, { recursive: true });
+              await c.fs.writeFile(`/${path}`, '');
+            } catch (e) {
+              log(`Write failed: ${(e as Error).message}`, 'err');
+            }
+          })();
+        }
+      }
+      if (entryKind === 'file') {
+        setActivePath(path);
+        if (isMobile) setMobilePane('editor');
+      }
+      log(`Created ${entryKind === 'folder' ? `${clean}/` : path}`, 'info');
+    },
+    [activePath, files, agentMode, currentLocalPath, isMobile, log],
+  );
+
   const downloadProject = useCallback(async () => {
     const c = containerRef.current;
     if (!c) return;
@@ -1999,7 +2064,25 @@ export default function App() {
                 }}
               />
             </div>
-            <div className="sidebar-divider">Files</div>
+            <div className="sidebar-divider sidebar-divider-row">
+              Files
+              <span className="sidebar-divider-actions">
+                <button
+                  className="link-button"
+                  onClick={() => createEntry('file')}
+                  title="Create a new file"
+                >
+                  + file
+                </button>
+                <button
+                  className="link-button"
+                  onClick={() => createEntry('folder')}
+                  title="Create a new folder"
+                >
+                  + folder
+                </button>
+              </span>
+            </div>
             <div data-tour="file-tree">
               <FileTree
                 files={files}
