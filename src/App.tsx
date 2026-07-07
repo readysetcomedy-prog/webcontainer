@@ -394,6 +394,15 @@ export default function App() {
     envContentRef.current = activeProject?.envContent ?? '';
     projectAppDirRef.current = activeProject?.appDir ?? null;
   }, [activeProject]);
+  // Session-scoped target choice from the open-time "site or app?" prompt.
+  // Deliberately NOT persisted — the user picks per open. Scoped to a
+  // project id so a stale choice never leaks across project switches.
+  const sessionAppDirRef = useRef<{ projectId: string; dir: string } | null>(null);
+  const appDirOverride = useCallback((): string | null => {
+    const s = sessionAppDirRef.current;
+    if (s && s.projectId === activeProjectIdRef.current) return s.dir;
+    return projectAppDirRef.current;
+  }, []);
   const setStoredEnv = useCallback(
     (_repoKey: string, content: string) => {
       if (!activeProject) {
@@ -707,14 +716,14 @@ export default function App() {
       if (!c) return;
       const gen = ++runGenRef.current;
       const projectFiles = filesOverride ?? filesRef.current;
-      const appInfo = resolveAppDir(projectFiles, projectAppDirRef.current);
+      const appInfo = resolveAppDir(projectFiles, appDirOverride());
       const appDir = appInfo.dir;
       const cwdPath = appDir ? `/${appDir}` : '/';
       const abs = (rel: string) =>
         cwdPath === '/' ? `/${rel}` : `${cwdPath}/${rel}`;
       const sourceLabel =
         appInfo.source === 'project'
-          ? 'project setting'
+          ? 'your target choice'
           : appInfo.source === 'config'
           ? 'from .getxsite.json'
           : 'auto-detected';
@@ -888,7 +897,7 @@ export default function App() {
         setStatus('stopped');
       });
     },
-    [log, pipeProcess],
+    [log, pipeProcess, appDirOverride],
   );
 
   const stopDev = useCallback(() => {
@@ -1015,6 +1024,50 @@ export default function App() {
         setCurrentRepoKey(repoKey);
         setCurrentBranch(branchUsed);
 
+        // Multi-target repos (website at root + app in a subfolder): ask
+        // which one to work on BEFORE pulling, using the layout remembered
+        // from the last open. The choice is session-only — the user picks
+        // fresh each open. Projects pinned via ⌖ (appDir set) skip the ask.
+        // First-ever open can't know the layout yet; that case is handled
+        // after the pull below.
+        sessionAppDirRef.current = null;
+        let askedBeforePull = false;
+        if (project.appDir == null) {
+          try {
+            const rawMeta = localStorage.getItem(`gx.repoTargets.${project.id}`);
+            if (rawMeta) {
+              const meta = JSON.parse(rawMeta) as {
+                root?: boolean;
+                candidates?: string[];
+              };
+              const candidates = Array.isArray(meta.candidates) ? meta.candidates : [];
+              if (meta.root && candidates.length > 0) {
+                askedBeforePull = true;
+                const lastChoice =
+                  localStorage.getItem(`gx.lastTarget.${project.id}`) ?? candidates[0];
+                const answer = window.prompt(
+                  `Work on the website or the app this session?\n` +
+                    `• "/" = website (repo root)\n` +
+                    `• app folder: ${candidates.join(', ')}\n` +
+                    `(Asked each open. Pin permanently with ⌖ on the project row.)`,
+                  lastChoice,
+                );
+                if (answer !== null) {
+                  const clean = answer.trim();
+                  const dir =
+                    clean === '' || clean === '/' || clean === '.'
+                      ? ''
+                      : clean.replace(/^\/+|\/+$/g, '');
+                  sessionAppDirRef.current = { projectId: project.id, dir };
+                  localStorage.setItem(`gx.lastTarget.${project.id}`, dir === '' ? '/' : dir);
+                }
+              }
+            }
+          } catch {
+            // corrupt meta — fall through to the post-pull ask
+          }
+        }
+
         const pathForThisMachine = agentInfo
           ? project.pathsByMachine?.[agentInfo.host] ?? project.localPath ?? null
           : null;
@@ -1071,45 +1124,43 @@ export default function App() {
           );
         }
 
-        // Multiple runnable targets and no per-project choice yet? Ask which
-        // folder this project should run/deploy instead of silently picking
-        // the root. The answer is saved on the project so it only asks once;
-        // the ⌖ button on the project row changes it later.
-        if (project.appDir == null) {
-          const probe = resolveAppDir(fetched, null);
-          if (probe.source === 'root' && probe.candidates.length > 0) {
-            const answer = window.prompt(
-              `This repo has an app at the root AND in: ${probe.candidates.join(', ')}.\n` +
-                `Which folder should Run/Deploy target for THIS project?\n` +
-                `• "/" = repo root\n` +
-                `• folder name = that subfolder\n` +
-                `(Tip: open the same repo as a second project to target the other one. Change anytime via ⌖ on the project row.)`,
-              probe.candidates[0],
-            );
-            if (answer !== null) {
-              const clean = answer.trim();
-              const dir =
-                clean === '' || clean === '/' || clean === '.'
-                  ? ''
-                  : clean.replace(/^\/+|\/+$/g, '');
-              projectAppDirRef.current = dir;
-              updateProjectFields(project.id, { appDir: dir })
-                .then((saved) =>
-                  setProjects((prev) =>
-                    prev.map((x) => (x.id === saved.id ? saved : x)),
-                  ),
-                )
-                .catch((e) => {
-                  const msg = (e as Error).message;
-                  log(`Couldn't save target dir: ${msg}`, 'err');
-                  notify(
-                    'error',
-                    /app_dir/.test(msg)
-                      ? 'Target dir chosen for this session, but saving failed — run the 20260707_project_app_dir migration in Supabase (adds projects.app_dir). Until then this prompt will reappear on every open.'
-                      : `Couldn't save target dir: ${msg}`,
-                  );
-                });
-            }
+        // Remember this repo's layout so the NEXT open can ask before pulling.
+        const probe = resolveAppDir(fetched, null);
+        try {
+          localStorage.setItem(
+            `gx.repoTargets.${project.id}`,
+            JSON.stringify({
+              root: probe.source === 'root' || probe.source === 'none',
+              candidates: probe.candidates,
+            }),
+          );
+        } catch {
+          // storage full/blocked — the post-pull ask below still covers it
+        }
+        // First-ever open of a multi-target repo: the layout wasn't known
+        // before the pull, so ask now. Session-only, same as the pre-pull ask.
+        if (
+          project.appDir == null &&
+          !askedBeforePull &&
+          probe.source === 'root' &&
+          probe.candidates.length > 0
+        ) {
+          const answer = window.prompt(
+            `This repo has a website at the root AND app(s) in: ${probe.candidates.join(', ')}.\n` +
+              `Work on which this session?\n` +
+              `• "/" = website (repo root)\n` +
+              `• folder name = that app\n` +
+              `(Asked each open. Pin permanently with ⌖ on the project row.)`,
+            probe.candidates[0],
+          );
+          if (answer !== null) {
+            const clean = answer.trim();
+            const dir =
+              clean === '' || clean === '/' || clean === '.'
+                ? ''
+                : clean.replace(/^\/+|\/+$/g, '');
+            sessionAppDirRef.current = { projectId: project.id, dir };
+            localStorage.setItem(`gx.lastTarget.${project.id}`, dir === '' ? '/' : dir);
           }
         }
 
@@ -1553,7 +1604,7 @@ export default function App() {
         log(`Saved .env.local for ${currentRepoKey}.`, 'info');
         // Also deliver into the project's target dir — bundlers read .env
         // from their cwd, not the repo root.
-        const appInfo = resolveAppDir(filesRef.current, projectAppDirRef.current);
+        const appInfo = resolveAppDir(filesRef.current, appDirOverride());
         if (appInfo.dir) {
           await c.fs.writeFile(`/${appInfo.dir}/.env.local`, content);
           log(`Saved /${appInfo.dir}/.env.local.`, 'info');
@@ -2017,7 +2068,7 @@ export default function App() {
         // Same app-root resolution as Run: .getxsite.json's appDir wins, so a
         // repo holding a website at root + an app in a subfolder builds and
         // deploys the right thing.
-        const appInfo = resolveAppDir(files, activeProject?.appDir ?? null);
+        const appInfo = resolveAppDir(files, appDirOverride());
         const appDir = appInfo.dir;
         const cwdPath = appDir ? `/${appDir}` : '/';
         const abs = (rel: string) =>
@@ -2026,7 +2077,7 @@ export default function App() {
           log(
             `Deploying from ${cwdPath} (${
               appInfo.source === 'project'
-                ? 'project setting'
+                ? 'your target choice'
                 : appInfo.source === 'config'
                 ? 'from .getxsite.json'
                 : 'auto-detected'
@@ -2199,7 +2250,7 @@ export default function App() {
         setStatus('deploy failed');
       }
     },
-    [activeProject, files, log, notify, pipeProcess],
+    [activeProject, files, log, notify, pipeProcess, appDirOverride],
   );
 
   const netlifySiteIdForToolbar = activeProject?.netlifySiteId ?? '';
