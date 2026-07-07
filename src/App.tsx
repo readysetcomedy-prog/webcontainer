@@ -1538,9 +1538,19 @@ export default function App() {
       const c = containerRef.current;
       if (!c || !currentRepoKey) return;
       setStoredEnv(currentRepoKey, content);
+      // Keep the ref mirror in sync immediately — the runDev below fires
+      // before React re-renders activeProject through the effect.
+      envContentRef.current = content;
       try {
         await c.fs.writeFile('/.env.local', content);
         log(`Saved .env.local for ${currentRepoKey}.`, 'info');
+        // Also deliver into the project's target dir — bundlers read .env
+        // from their cwd, not the repo root.
+        const appInfo = resolveAppDir(filesRef.current, projectAppDirRef.current);
+        if (appInfo.dir) {
+          await c.fs.writeFile(`/${appInfo.dir}/.env.local`, content);
+          log(`Saved /${appInfo.dir}/.env.local.`, 'info');
+        }
       } catch (e) {
         log(`Failed to write .env.local: ${(e as Error).message}`, 'err');
         return;
