@@ -1099,9 +1099,16 @@ export default function App() {
                     prev.map((x) => (x.id === saved.id ? saved : x)),
                   ),
                 )
-                .catch((e) =>
-                  log(`Couldn't save target dir: ${(e as Error).message}`, 'err'),
-                );
+                .catch((e) => {
+                  const msg = (e as Error).message;
+                  log(`Couldn't save target dir: ${msg}`, 'err');
+                  notify(
+                    'error',
+                    /app_dir/.test(msg)
+                      ? 'Target dir chosen for this session, but saving failed — run the 20260707_project_app_dir migration in Supabase (adds projects.app_dir). Until then this prompt will reappear on every open.'
+                      : `Couldn't save target dir: ${msg}`,
+                  );
+                });
             }
           }
         }
