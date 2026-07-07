@@ -65,48 +65,6 @@ const TERM_CARRY_RE = /(?:\x1b(?:\[[0-9;?]*)?|\x1b\][^\x07\x1b]*|\r)$/;
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
 
-// Which directory Run/Deploy should treat as the app root. Repos that hold a
-// website at the root plus an app in a subfolder (e.g. /mobile with its own
-// package.json) can pin the app with a .getxsite.json at the repo root:
-//   { "appDir": "mobile" }
-// Resolution order: valid config wins → root package.json → exactly one
-// top-level subfolder with a package.json (auto) → root as a last resort.
-interface AppDirInfo {
-  dir: string; // '' = repo root
-  source: 'config' | 'root' | 'auto' | 'none';
-  candidates: string[]; // top-level dirs that contain a package.json
-}
-
-function resolveAppDir(projectFiles: FileEntry[]): AppDirInfo {
-  const has = (p: string) => projectFiles.some((f) => f.path === p);
-  const candidates = projectFiles
-    .filter((f) => /^[^/]+\/package\.json$/.test(f.path))
-    .map((f) => f.path.slice(0, -'/package.json'.length))
-    .filter((d) => d !== 'node_modules');
-  const cfg = projectFiles.find((f) => f.path === '.getxsite.json');
-  if (cfg && typeof cfg.content === 'string') {
-    try {
-      const parsed = JSON.parse(cfg.content) as { appDir?: unknown };
-      if (typeof parsed.appDir === 'string') {
-        const dir = parsed.appDir.replace(/^\/+|\/+$/g, '');
-        if (dir === '' || dir === '.') {
-          return { dir: '', source: 'config', candidates };
-        }
-        if (has(`${dir}/package.json`)) {
-          return { dir, source: 'config', candidates };
-        }
-      }
-    } catch {
-      // invalid config — fall through to detection
-    }
-  }
-  if (has('package.json')) return { dir: '', source: 'root', candidates };
-  if (candidates.length === 1) {
-    return { dir: candidates[0], source: 'auto', candidates };
-  }
-  return { dir: '', source: 'none', candidates };
-}
-
 function useIsMobile(): boolean {
   const query = '(max-width: 768px)';
   const [isMobile, setIsMobile] = useState(() =>
@@ -684,23 +642,7 @@ export default function App() {
       if (!c) return;
       const gen = ++runGenRef.current;
       const projectFiles = filesOverride ?? filesRef.current;
-      const appInfo = resolveAppDir(projectFiles);
-      const appDir = appInfo.dir;
-      const cwdPath = appDir ? `/${appDir}` : '/';
-      const abs = (rel: string) =>
-        cwdPath === '/' ? `/${rel}` : `${cwdPath}/${rel}`;
-      if (appDir) {
-        log(
-          `Running in ${cwdPath} (${appInfo.source === 'config' ? 'from .getxsite.json' : 'auto-detected'})`,
-          'info',
-        );
-      } else if (appInfo.source === 'root' && appInfo.candidates.length > 0) {
-        log(
-          `Running repo root. Nested app${appInfo.candidates.length === 1 ? '' : 's'} found in: ${appInfo.candidates.join(', ')} — to run one instead, create .getxsite.json at the root with {"appDir": "${appInfo.candidates[0]}"}.`,
-          'info',
-        );
-      }
-      const pkg = projectFiles.find((f) => f.path === abs('package.json').slice(1));
+      const pkg = projectFiles.find((f) => f.path === 'package.json');
       if (!pkg) {
         log('No package.json found — skipping install/run.', 'info');
         setStatus('ready (no package.json)');
@@ -731,16 +673,12 @@ export default function App() {
       // project re-runs (HMR config edit, manual Run) keep the cache
       // and reinstall fast.
       const projectId = activeProjectIdRef.current;
-      // Key includes appDir so switching the app root within one project
-      // also triggers a clean install in the new location.
-      const installKey = projectId ? `${projectId}::${appDir}` : null;
       const projectChanged =
-        !!installKey && installedForProjectRef.current !== installKey;
+        !!projectId && installedForProjectRef.current !== projectId;
       if (projectChanged) {
         setStatus('clearing previous project node_modules…');
-        const wipeTargets = [abs('node_modules'), abs('package-lock.json')];
-        log(`$ rm -rf ${wipeTargets.join(' ')}`, 'info');
-        for (const dir of wipeTargets) {
+        log('$ rm -rf /node_modules /package-lock.json', 'info');
+        for (const dir of ['/node_modules', '/package-lock.json']) {
           try {
             const rm = await c.spawn('rm', ['-rf', dir]);
             if (runGenRef.current !== gen) {
@@ -763,7 +701,7 @@ export default function App() {
         ? ['install', '--legacy-peer-deps']
         : ['install'];
       log(`$ npm ${installArgs.join(' ')}`, 'info');
-      const install = await c.spawn('npm', installArgs, { cwd: cwdPath });
+      const install = await c.spawn('npm', installArgs);
       if (runGenRef.current !== gen) {
         try { install.kill(); } catch {}
         return;
@@ -777,7 +715,7 @@ export default function App() {
         setRunning(false);
         return;
       }
-      installedForProjectRef.current = installKey;
+      installedForProjectRef.current = projectId ?? null;
       // Expo with no explicit web script: invoke `expo start --web` directly.
       // Pass --clear so Metro starts with a fresh cache — between project
       // switches its cache from the previous project routinely poisons the
@@ -791,12 +729,7 @@ export default function App() {
         // cache; .metro is some plugins' overflow. After a project
         // switch any of those can hold references to files that no
         // longer exist in the new tree.
-        for (const dir of [
-          abs('node_modules/.cache'),
-          abs('.expo'),
-          abs('.expo-shared'),
-          abs('.metro'),
-        ]) {
+        for (const dir of ['/node_modules/.cache', '/.expo', '/.expo-shared', '/.metro']) {
           try {
             const rm = await c.spawn('rm', ['-rf', dir]);
             if (runGenRef.current !== gen) {
@@ -812,7 +745,7 @@ export default function App() {
       if (!startScript && isExpo) {
         setStatus('starting (expo start --web --clear)…');
         log('$ npx expo start --web --clear', 'info');
-        dev = await c.spawn('npx', ['expo', 'start', '--web', '--clear'], { cwd: cwdPath });
+        dev = await c.spawn('npx', ['expo', 'start', '--web', '--clear']);
       } else if (!startScript) {
         log('No dev/start/serve/web script found in package.json.', 'info');
         setStatus('installed (no start script)');
@@ -825,11 +758,11 @@ export default function App() {
         // expo directly.
         setStatus(`starting (npm run ${startScript} -- --clear)…`);
         log(`$ npm run ${startScript} -- --clear`, 'info');
-        dev = await c.spawn('npm', ['run', startScript, '--', '--clear'], { cwd: cwdPath });
+        dev = await c.spawn('npm', ['run', startScript, '--', '--clear']);
       } else {
         setStatus(`starting (npm run ${startScript})…`);
         log(`$ npm run ${startScript}`, 'info');
-        dev = await c.spawn('npm', ['run', startScript], { cwd: cwdPath });
+        dev = await c.spawn('npm', ['run', startScript]);
       }
       if (runGenRef.current !== gen) {
         try { dev.kill(); } catch {}
@@ -1897,21 +1830,7 @@ export default function App() {
       if (!c) return;
       try {
         setStatus('preparing build for deploy…');
-        // Same app-root resolution as Run: .getxsite.json's appDir wins, so a
-        // repo holding a website at root + an app in a subfolder builds and
-        // deploys the right thing.
-        const appInfo = resolveAppDir(files);
-        const appDir = appInfo.dir;
-        const cwdPath = appDir ? `/${appDir}` : '/';
-        const abs = (rel: string) =>
-          cwdPath === '/' ? `/${rel}` : `${cwdPath}/${rel}`;
-        if (appDir) {
-          log(
-            `Deploying from ${cwdPath} (${appInfo.source === 'config' ? 'from .getxsite.json' : 'auto-detected'})`,
-            'info',
-          );
-        }
-        const pkgFile = files.find((f) => f.path === abs('package.json').slice(1));
+        const pkgFile = files.find((f) => f.path === 'package.json');
         let deployFiles: FileEntry[] = files;
         if (pkgFile) {
           let deps: Record<string, string> = {};
@@ -1935,17 +1854,16 @@ export default function App() {
           // Deploy must be self-sufficient: pull → deploy shouldn't require a
           // dev-server Run first just to get dependencies installed (that's
           // the heavy path we want mobile users to be able to skip). If
-          // node_modules is missing — or belongs to a different project /
-          // app dir than the one being deployed — install before building.
+          // node_modules is missing — or belongs to a different project than
+          // the one being deployed — install before building.
           const projectId = activeProjectIdRef.current;
-          const installKey = projectId ? `${projectId}::${appDir}` : null;
           const staleTree =
-            !!installKey && installedForProjectRef.current !== null &&
-            installedForProjectRef.current !== installKey;
-          let needInstall = installedForProjectRef.current !== installKey;
+            !!projectId && installedForProjectRef.current !== null &&
+            installedForProjectRef.current !== projectId;
+          let needInstall = installedForProjectRef.current !== projectId;
           if (!needInstall) {
             try {
-              await c.fs.readdir(abs('node_modules'));
+              await c.fs.readdir('/node_modules');
             } catch {
               needInstall = true;
             }
@@ -1954,9 +1872,8 @@ export default function App() {
             if (staleTree) {
               // node_modules belongs to a different project — wipe it like
               // runDev does, or npm reconciles against the wrong lockfile.
-              const wipeTargets = [abs('node_modules'), abs('package-lock.json')];
-              log(`$ rm -rf ${wipeTargets.join(' ')}`, 'info');
-              for (const p of wipeTargets) {
+              log('$ rm -rf /node_modules /package-lock.json', 'info');
+              for (const p of ['/node_modules', '/package-lock.json']) {
                 try {
                   const rm = await c.spawn('rm', ['-rf', p]);
                   await rm.exit;
@@ -1970,11 +1887,11 @@ export default function App() {
               ? ['install', '--legacy-peer-deps']
               : ['install'];
             log(`$ npm ${installArgs.join(' ')}`, 'info');
-            const install = await c.spawn('npm', installArgs, { cwd: cwdPath });
+            const install = await c.spawn('npm', installArgs);
             pipeProcess(install);
             const icode = await install.exit;
             if (icode !== 0) throw new Error(`npm install exited ${icode}`);
-            installedForProjectRef.current = installKey;
+            installedForProjectRef.current = projectId ?? null;
           }
 
           setStatus('building for deploy…');
@@ -1982,7 +1899,7 @@ export default function App() {
           let outputDirs: string[];
           if (isExpo) {
             log('$ npx expo export -p web', 'info');
-            const build = await c.spawn('npx', ['expo', 'export', '-p', 'web'], { cwd: cwdPath });
+            const build = await c.spawn('npx', ['expo', 'export', '-p', 'web']);
             pipeProcess(build);
             const bcode = await build.exit;
             if (bcode !== 0) throw new Error(`expo export exited ${bcode}`);
@@ -1990,7 +1907,7 @@ export default function App() {
             outputDirs = ['dist'];
           } else if (scripts.build) {
             log('$ npm run build', 'info');
-            const build = await c.spawn('npm', ['run', 'build'], { cwd: cwdPath });
+            const build = await c.spawn('npm', ['run', 'build']);
             pipeProcess(build);
             const bcode = await build.exit;
             if (bcode !== 0) throw new Error(`build exited ${bcode}`);
@@ -2007,20 +1924,15 @@ export default function App() {
 
           let foundOutput = false;
           for (const dir of outputDirs) {
-            const target = abs(dir);
             try {
-              await c.fs.readdir(target);
-              const out = await readAllFiles(c, target);
+              await c.fs.readdir(`/${dir}`);
+              const out = await readAllFiles(c, `/${dir}`);
               if (out.length === 0) continue;
-              // readAllFiles returns repo-relative paths (e.g. "myapp/dist/
-              // index.html") — strip the output-dir prefix so the zip root is
-              // the site root.
-              const prefix = `${target.replace(/^\//, '')}/`;
               deployFiles = out.map((f) => ({
                 ...f,
-                path: f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path,
+                path: f.path.replace(new RegExp(`^${dir}/`), ''),
               }));
-              log(`Deploying ${deployFiles.length} files from ${target}`, 'info');
+              log(`Deploying ${deployFiles.length} files from /${dir}`, 'info');
               foundOutput = true;
               break;
             } catch {
@@ -2032,7 +1944,7 @@ export default function App() {
           // exact "deployed but broken" bug. Surface it so the deploy aborts.
           if (ranBuild && !foundOutput) {
             throw new Error(
-              `Build finished but no output found in: ${outputDirs.map((d) => abs(d)).join(', ')}. ` +
+              `Build finished but no output found in: ${outputDirs.join(', ')}/. ` +
                 (isExpo
                   ? 'Expo web export should produce dist/ — check app.json has a web config (e.g. "web": { "bundler": "metro", "output": "single" }) and that expo-router web support is installed.'
                   : 'Check that your build script writes to dist/, build/, or out/.'),
