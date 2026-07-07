@@ -65,6 +65,29 @@ const TERM_CARRY_RE = /(?:\x1b(?:\[[0-9;?]*)?|\x1b\][^\x07\x1b]*|\r)$/;
 const textOf = (c: string | Uint8Array): string =>
   typeof c === 'string' ? c : new TextDecoder('utf-8').decode(c);
 
+// Parse dotenv-style content (KEY=value lines) into a map for spawn env.
+// Passing vars via the process environment is the most reliable delivery:
+// Expo/Vite read process.env first and .env files can't override it, and it
+// side-steps every "which folder does the CLI read .env from" question.
+function parseEnvContent(content: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const m = line.replace(/^export\s+/, '').match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    let v = m[2].trim();
+    if (
+      (v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'"))
+    ) {
+      v = v.slice(1, -1);
+    }
+    out[m[1]] = v;
+  }
+  return out;
+}
+
 // Which directory Run/Deploy should treat as the app root. Repos that hold a
 // website at the root plus an app in a subfolder (e.g. /mobile with its own
 // package.json) can be targeted per PROJECT — two getxsite projects can share
@@ -753,6 +776,26 @@ export default function App() {
           log(`Failed to write ${abs('.env.local')}: ${(e as Error).message}`, 'err');
         }
       }
+      // Belt AND suspenders: also inject the vars straight into the process
+      // environment of everything we spawn. process.env beats .env files in
+      // Expo/Vite and is immune to file-location questions. The log line
+      // names the vars (never values) so an empty env panel is immediately
+      // visible in the terminal instead of failing silently downstream.
+      const envVars = parseEnvContent(envContentRef.current);
+      const envKeys = Object.keys(envVars);
+      if (envKeys.length > 0) {
+        log(
+          `Passing ${envKeys.length} project env var${envKeys.length === 1 ? '' : 's'} to the app: ${envKeys.join(', ')}`,
+          'info',
+        );
+      } else {
+        log(
+          'Project env is EMPTY — no vars passed. If the app needs EXPO_PUBLIC_* / VITE_* values, open "Env vars", paste them, and Save.',
+          'info',
+        );
+      }
+      const spawnOpts =
+        envKeys.length > 0 ? { cwd: cwdPath, env: envVars } : { cwd: cwdPath };
       let scripts: Record<string, string> = {};
       let deps: Record<string, string> = {};
       try {
@@ -810,7 +853,7 @@ export default function App() {
         ? ['install', '--legacy-peer-deps']
         : ['install'];
       log(`$ npm ${installArgs.join(' ')}`, 'info');
-      const install = await c.spawn('npm', installArgs, { cwd: cwdPath });
+      const install = await c.spawn('npm', installArgs, spawnOpts);
       if (runGenRef.current !== gen) {
         try { install.kill(); } catch {}
         return;
@@ -859,7 +902,7 @@ export default function App() {
       if (!startScript && isExpo) {
         setStatus('starting (expo start --web --clear)…');
         log('$ npx expo start --web --clear', 'info');
-        dev = await c.spawn('npx', ['expo', 'start', '--web', '--clear'], { cwd: cwdPath });
+        dev = await c.spawn('npx', ['expo', 'start', '--web', '--clear'], spawnOpts);
       } else if (!startScript) {
         log('No dev/start/serve/web script found in package.json.', 'info');
         setStatus('installed (no start script)');
@@ -872,11 +915,11 @@ export default function App() {
         // expo directly.
         setStatus(`starting (npm run ${startScript} -- --clear)…`);
         log(`$ npm run ${startScript} -- --clear`, 'info');
-        dev = await c.spawn('npm', ['run', startScript, '--', '--clear'], { cwd: cwdPath });
+        dev = await c.spawn('npm', ['run', startScript, '--', '--clear'], spawnOpts);
       } else {
         setStatus(`starting (npm run ${startScript})…`);
         log(`$ npm run ${startScript}`, 'info');
-        dev = await c.spawn('npm', ['run', startScript], { cwd: cwdPath });
+        dev = await c.spawn('npm', ['run', startScript], spawnOpts);
       }
       if (runGenRef.current !== gen) {
         try { dev.kill(); } catch {}
@@ -2095,6 +2138,23 @@ export default function App() {
             log(`Failed to write ${abs('.env.local')}: ${(e as Error).message}`, 'err');
           }
         }
+        // Also inject env into the build's process environment — beats .env
+        // files and is immune to file-location questions (same as runDev).
+        const envVars = parseEnvContent(activeProject?.envContent ?? '');
+        const envKeys = Object.keys(envVars);
+        if (envKeys.length > 0) {
+          log(
+            `Passing ${envKeys.length} project env var${envKeys.length === 1 ? '' : 's'} to the build: ${envKeys.join(', ')}`,
+            'info',
+          );
+        } else {
+          log(
+            'Project env is EMPTY — building without env vars. If the app needs EXPO_PUBLIC_* / VITE_* values, set them via "Env vars" before deploying.',
+            'info',
+          );
+        }
+        const spawnOpts =
+          envKeys.length > 0 ? { cwd: cwdPath, env: envVars } : { cwd: cwdPath };
         const pkgFile = files.find((f) => f.path === abs('package.json').slice(1));
         let deployFiles: FileEntry[] = files;
         if (pkgFile) {
@@ -2154,7 +2214,7 @@ export default function App() {
               ? ['install', '--legacy-peer-deps']
               : ['install'];
             log(`$ npm ${installArgs.join(' ')}`, 'info');
-            const install = await c.spawn('npm', installArgs, { cwd: cwdPath });
+            const install = await c.spawn('npm', installArgs, spawnOpts);
             pipeProcess(install);
             const icode = await install.exit;
             if (icode !== 0) throw new Error(`npm install exited ${icode}`);
@@ -2166,7 +2226,7 @@ export default function App() {
           let outputDirs: string[];
           if (isExpo) {
             log('$ npx expo export -p web', 'info');
-            const build = await c.spawn('npx', ['expo', 'export', '-p', 'web'], { cwd: cwdPath });
+            const build = await c.spawn('npx', ['expo', 'export', '-p', 'web'], spawnOpts);
             pipeProcess(build);
             const bcode = await build.exit;
             if (bcode !== 0) throw new Error(`expo export exited ${bcode}`);
@@ -2174,7 +2234,7 @@ export default function App() {
             outputDirs = ['dist'];
           } else if (scripts.build) {
             log('$ npm run build', 'info');
-            const build = await c.spawn('npm', ['run', 'build'], { cwd: cwdPath });
+            const build = await c.spawn('npm', ['run', 'build'], spawnOpts);
             pipeProcess(build);
             const bcode = await build.exit;
             if (bcode !== 0) throw new Error(`build exited ${bcode}`);
