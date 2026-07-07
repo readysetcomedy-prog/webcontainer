@@ -20,6 +20,7 @@ export interface ProjectsSectionProps {
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onSetGroup: (id: string, groupName: string | null) => void;
+  onSetAppDir: (id: string, appDir: string | null) => void;
   onRenameGroup: (fromName: string, toName: string) => void;
 }
 
@@ -65,6 +66,7 @@ export default function ProjectsSection({
   onRename,
   onDelete,
   onSetGroup,
+  onSetAppDir,
   onRenameGroup,
 }: ProjectsSectionProps) {
   const [adding, setAdding] = useState(false);
@@ -203,6 +205,28 @@ export default function ProjectsSection({
     onSetGroup(p.id, next.trim() || null);
   };
 
+  const promptSetAppDir = (p: Project) => {
+    const current =
+      typeof p.appDir === 'string' ? (p.appDir === '' ? '/' : p.appDir) : 'auto';
+    const next = window.prompt(
+      `Target directory for "${p.name}" — which folder Run and Deploy use.\n` +
+        `• folder name (e.g. app) = run/deploy that subfolder\n` +
+        `• "/" = repo root\n` +
+        `• "auto" = detect (.getxsite.json or auto-detection)\n\n` +
+        `Two projects can share one repo with different targets.`,
+      current,
+    );
+    if (next === null) return; // cancelled
+    const clean = next.trim();
+    if (clean === '' || clean.toLowerCase() === 'auto') {
+      onSetAppDir(p.id, null);
+    } else if (clean === '/' || clean === '.') {
+      onSetAppDir(p.id, '');
+    } else {
+      onSetAppDir(p.id, clean.replace(/^\/+|\/+$/g, ''));
+    }
+  };
+
   const startGroupRename = (label: string) => {
     setRenamingGroup(label);
     setGroupRenameValue(label);
@@ -289,6 +313,19 @@ export default function ProjectsSection({
             onClick={() => promptSetGroup(p)}
           >
             ⌃
+          </button>
+          <button
+            className="icon-button"
+            title={
+              typeof p.appDir === 'string'
+                ? p.appDir === ''
+                  ? 'Target dir: repo root — click to change'
+                  : `Target dir: ${p.appDir}/ — click to change`
+                : 'Target dir: auto — set which folder Run/Deploy use'
+            }
+            onClick={() => promptSetAppDir(p)}
+          >
+            ⌖
           </button>
           <button
             className="icon-button"

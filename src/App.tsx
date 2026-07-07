@@ -67,22 +67,36 @@ const textOf = (c: string | Uint8Array): string =>
 
 // Which directory Run/Deploy should treat as the app root. Repos that hold a
 // website at the root plus an app in a subfolder (e.g. /mobile with its own
-// package.json) can pin the app with a .getxsite.json at the repo root:
-//   { "appDir": "mobile" }
-// Resolution order: valid config wins → root package.json → exactly one
-// top-level subfolder with a package.json (auto) → root as a last resort.
+// package.json) can be targeted per PROJECT — two getxsite projects can share
+// one repo with different targets (website at root, Expo app in /mobile).
+// Resolution order:
+//   1. per-project setting (projects.app_dir) — '' = explicit root
+//   2. committed .getxsite.json { "appDir": "mobile" }
+//   3. root package.json
+//   4. exactly one top-level subfolder with a package.json (auto)
+//   5. root as a last resort
 interface AppDirInfo {
   dir: string; // '' = repo root
-  source: 'config' | 'root' | 'auto' | 'none';
+  source: 'project' | 'config' | 'root' | 'auto' | 'none';
   candidates: string[]; // top-level dirs that contain a package.json
 }
 
-function resolveAppDir(projectFiles: FileEntry[]): AppDirInfo {
+function resolveAppDir(
+  projectFiles: FileEntry[],
+  projectAppDir?: string | null,
+): AppDirInfo {
   const has = (p: string) => projectFiles.some((f) => f.path === p);
   const candidates = projectFiles
     .filter((f) => /^[^/]+\/package\.json$/.test(f.path))
     .map((f) => f.path.slice(0, -'/package.json'.length))
     .filter((d) => d !== 'node_modules');
+  if (typeof projectAppDir === 'string') {
+    const dir = projectAppDir.replace(/^\/+|\/+$/g, '');
+    if (dir === '' || dir === '.') return { dir: '', source: 'project', candidates };
+    if (has(`${dir}/package.json`)) return { dir, source: 'project', candidates };
+    // Setting points at a folder with no package.json — fall through to the
+    // config/auto chain rather than running something broken.
+  }
   const cfg = projectFiles.find((f) => f.path === '.getxsite.json');
   if (cfg && typeof cfg.content === 'string') {
     try {
@@ -371,6 +385,15 @@ export default function App() {
     (): string => activeProject?.envContent ?? '',
     [activeProject],
   );
+  // Ref mirrors so runDev (which keeps a deliberately minimal deps array
+  // for identity stability) can read the active project's env content and
+  // target-dir setting.
+  const envContentRef = useRef<string>('');
+  const projectAppDirRef = useRef<string | null>(null);
+  useEffect(() => {
+    envContentRef.current = activeProject?.envContent ?? '';
+    projectAppDirRef.current = activeProject?.appDir ?? null;
+  }, [activeProject]);
   const setStoredEnv = useCallback(
     (_repoKey: string, content: string) => {
       if (!activeProject) {
@@ -684,19 +707,22 @@ export default function App() {
       if (!c) return;
       const gen = ++runGenRef.current;
       const projectFiles = filesOverride ?? filesRef.current;
-      const appInfo = resolveAppDir(projectFiles);
+      const appInfo = resolveAppDir(projectFiles, projectAppDirRef.current);
       const appDir = appInfo.dir;
       const cwdPath = appDir ? `/${appDir}` : '/';
       const abs = (rel: string) =>
         cwdPath === '/' ? `/${rel}` : `${cwdPath}/${rel}`;
+      const sourceLabel =
+        appInfo.source === 'project'
+          ? 'project setting'
+          : appInfo.source === 'config'
+          ? 'from .getxsite.json'
+          : 'auto-detected';
       if (appDir) {
-        log(
-          `Running in ${cwdPath} (${appInfo.source === 'config' ? 'from .getxsite.json' : 'auto-detected'})`,
-          'info',
-        );
+        log(`Running in ${cwdPath} (${sourceLabel})`, 'info');
       } else if (appInfo.source === 'root' && appInfo.candidates.length > 0) {
         log(
-          `Running repo root. Nested app${appInfo.candidates.length === 1 ? '' : 's'} found in: ${appInfo.candidates.join(', ')} — to run one instead, create .getxsite.json at the root with {"appDir": "${appInfo.candidates[0]}"}.`,
+          `Running repo root. Nested app${appInfo.candidates.length === 1 ? '' : 's'} found in: ${appInfo.candidates.join(', ')} — set the project's target dir (project settings) to run one instead.`,
           'info',
         );
       }
@@ -705,6 +731,18 @@ export default function App() {
         log('No package.json found — skipping install/run.', 'info');
         setStatus('ready (no package.json)');
         return;
+      }
+      // Project env vars are written to /.env.local at the repo root on
+      // project open — but bundlers load .env files from THEIR root (the
+      // cwd). When running from a subfolder, deliver a copy there too, or
+      // EXPO_PUBLIC_* / VITE_* vars silently come out undefined.
+      if (appDir && envContentRef.current) {
+        try {
+          await c.fs.writeFile(abs('.env.local'), envContentRef.current);
+          log(`Wrote ${abs('.env.local')} (project env)`, 'info');
+        } catch (e) {
+          log(`Failed to write ${abs('.env.local')}: ${(e as Error).message}`, 'err');
+        }
       }
       let scripts: Record<string, string> = {};
       let deps: Record<string, string> = {};
@@ -1033,6 +1071,41 @@ export default function App() {
           );
         }
 
+        // Multiple runnable targets and no per-project choice yet? Ask which
+        // folder this project should run/deploy instead of silently picking
+        // the root. The answer is saved on the project so it only asks once;
+        // the ⌖ button on the project row changes it later.
+        if (project.appDir == null) {
+          const probe = resolveAppDir(fetched, null);
+          if (probe.source === 'root' && probe.candidates.length > 0) {
+            const answer = window.prompt(
+              `This repo has an app at the root AND in: ${probe.candidates.join(', ')}.\n` +
+                `Which folder should Run/Deploy target for THIS project?\n` +
+                `• "/" = repo root\n` +
+                `• folder name = that subfolder\n` +
+                `(Tip: open the same repo as a second project to target the other one. Change anytime via ⌖ on the project row.)`,
+              probe.candidates[0],
+            );
+            if (answer !== null) {
+              const clean = answer.trim();
+              const dir =
+                clean === '' || clean === '/' || clean === '.'
+                  ? ''
+                  : clean.replace(/^\/+|\/+$/g, '');
+              projectAppDirRef.current = dir;
+              updateProjectFields(project.id, { appDir: dir })
+                .then((saved) =>
+                  setProjects((prev) =>
+                    prev.map((x) => (x.id === saved.id ? saved : x)),
+                  ),
+                )
+                .catch((e) =>
+                  log(`Couldn't save target dir: ${(e as Error).message}`, 'err'),
+                );
+            }
+          }
+        }
+
         log(`Loaded ${fetched.length} files.`, 'info');
         notify(
           'success',
@@ -1157,6 +1230,33 @@ export default function App() {
       } catch (e) {
         log(`Set group failed: ${(e as Error).message}`, 'err');
         notify('error', `Set group failed: ${(e as Error).message}`);
+      }
+    },
+    [log, notify],
+  );
+
+  const setProjectAppDir = useCallback(
+    async (id: string, appDir: string | null) => {
+      try {
+        const saved = await updateProjectFields(id, { appDir });
+        setProjects((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+        log(
+          appDir === null
+            ? `"${saved.name}" target dir: auto (config / detection)`
+            : appDir === ''
+            ? `"${saved.name}" target dir: repo root`
+            : `"${saved.name}" target dir: ${appDir}/`,
+          'info',
+        );
+      } catch (e) {
+        const msg = (e as Error).message;
+        log(`Set target dir failed: ${msg}`, 'err');
+        notify(
+          'error',
+          /app_dir/.test(msg)
+            ? 'Set target dir failed — run the 20260707_project_app_dir migration in Supabase (adds projects.app_dir).'
+            : `Set target dir failed: ${msg}`,
+        );
       }
     },
     [log, notify],
@@ -1900,16 +2000,32 @@ export default function App() {
         // Same app-root resolution as Run: .getxsite.json's appDir wins, so a
         // repo holding a website at root + an app in a subfolder builds and
         // deploys the right thing.
-        const appInfo = resolveAppDir(files);
+        const appInfo = resolveAppDir(files, activeProject?.appDir ?? null);
         const appDir = appInfo.dir;
         const cwdPath = appDir ? `/${appDir}` : '/';
         const abs = (rel: string) =>
           cwdPath === '/' ? `/${rel}` : `${cwdPath}/${rel}`;
         if (appDir) {
           log(
-            `Deploying from ${cwdPath} (${appInfo.source === 'config' ? 'from .getxsite.json' : 'auto-detected'})`,
+            `Deploying from ${cwdPath} (${
+              appInfo.source === 'project'
+                ? 'project setting'
+                : appInfo.source === 'config'
+                ? 'from .getxsite.json'
+                : 'auto-detected'
+            })`,
             'info',
           );
+        }
+        // Deliver project env into the app dir before building — expo export
+        // and vite build inline EXPO_PUBLIC_* / VITE_* vars at build time from
+        // the cwd's .env files.
+        if (appDir && activeProject?.envContent) {
+          try {
+            await c.fs.writeFile(abs('.env.local'), activeProject.envContent);
+          } catch (e) {
+            log(`Failed to write ${abs('.env.local')}: ${(e as Error).message}`, 'err');
+          }
         }
         const pkgFile = files.find((f) => f.path === abs('package.json').slice(1));
         let deployFiles: FileEntry[] = files;
@@ -2254,6 +2370,7 @@ export default function App() {
                 onRename={renameProject}
                 onDelete={deleteProject}
                 onSetGroup={setProjectGroup}
+                onSetAppDir={setProjectAppDir}
                 onRenameGroup={renameProjectGroup}
               />
             </div>

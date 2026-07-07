@@ -14,6 +14,11 @@ export interface Project {
   branch: string | null;
   envContent: string;
   netlifySiteId?: string;
+  // Target directory for Run/Deploy. null/undefined = unset (fall back to
+  // .getxsite.json, then auto-detect); '' = explicitly the repo root;
+  // e.g. 'app' = run/deploy inside app/. Lets two projects share one repo
+  // with different targets (website at root, Expo app in a subfolder).
+  appDir?: string | null;
   localPath?: string;
   pathsByMachine: Record<string, string>;
   updatedAt: number;

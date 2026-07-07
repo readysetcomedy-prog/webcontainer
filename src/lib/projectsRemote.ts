@@ -11,6 +11,8 @@ interface ProjectRow {
   branch: string | null;
   env_content: string;
   netlify_site_id: string | null;
+  // May be absent until the 20260707_project_app_dir migration has run.
+  app_dir?: string | null;
   local_path: string | null;
   paths_by_machine: Record<string, string> | null;
   updated_at: string;
@@ -26,6 +28,7 @@ function rowToProject(r: ProjectRow): Project {
     branch: r.branch,
     envContent: r.env_content,
     netlifySiteId: r.netlify_site_id ?? undefined,
+    appDir: r.app_dir ?? null,
     localPath: r.local_path ?? undefined,
     pathsByMachine: r.paths_by_machine ?? {},
     updatedAt: new Date(r.updated_at).getTime(),
@@ -120,6 +123,7 @@ export async function updateProjectFields(
       | 'branch'
       | 'envContent'
       | 'netlifySiteId'
+      | 'appDir'
       | 'localPath'
       | 'pathsByMachine'
     >
@@ -136,6 +140,9 @@ export async function updateProjectFields(
   if (patch.envContent !== undefined) payload.env_content = patch.envContent;
   if (patch.netlifySiteId !== undefined)
     payload.netlify_site_id = patch.netlifySiteId || null;
+  // appDir: '' is meaningful (explicit repo root) — only null clears, so
+  // don't use the `|| null` coercion the other string fields use.
+  if (patch.appDir !== undefined) payload.app_dir = patch.appDir;
   if (patch.localPath !== undefined)
     payload.local_path = patch.localPath || null;
   if (patch.pathsByMachine !== undefined)
