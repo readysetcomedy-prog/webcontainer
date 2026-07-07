@@ -10,6 +10,8 @@ interface ProjectRow {
   repo: string | null;
   branch: string | null;
   env_content: string;
+  // May be absent until the 20260707_project_app_dir migration has run.
+  env_by_dir?: Record<string, string> | null;
   netlify_site_id: string | null;
   // May be absent until the 20260707_project_app_dir migration has run.
   app_dir?: string | null;
@@ -27,6 +29,7 @@ function rowToProject(r: ProjectRow): Project {
     repo: r.repo,
     branch: r.branch,
     envContent: r.env_content,
+    envByDir: r.env_by_dir ?? null,
     netlifySiteId: r.netlify_site_id ?? undefined,
     appDir: r.app_dir ?? null,
     localPath: r.local_path ?? undefined,
@@ -122,6 +125,7 @@ export async function updateProjectFields(
       | 'repo'
       | 'branch'
       | 'envContent'
+      | 'envByDir'
       | 'netlifySiteId'
       | 'appDir'
       | 'localPath'
@@ -138,6 +142,7 @@ export async function updateProjectFields(
   if (patch.repo !== undefined) payload.repo = patch.repo || null;
   if (patch.branch !== undefined) payload.branch = patch.branch || null;
   if (patch.envContent !== undefined) payload.env_content = patch.envContent;
+  if (patch.envByDir !== undefined) payload.env_by_dir = patch.envByDir;
   if (patch.netlifySiteId !== undefined)
     payload.netlify_site_id = patch.netlifySiteId || null;
   // appDir: '' is meaningful (explicit repo root) — only null clears, so

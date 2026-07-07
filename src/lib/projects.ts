@@ -13,6 +13,10 @@ export interface Project {
   repo: string | null;
   branch: string | null;
   envContent: string;
+  // Per-target env vars, keyed by target dir (e.g. { "app": "EXPO_PUBLIC_…" }).
+  // envContent remains the repo-root env. A repo holding a Vite site at the
+  // root and an Expo app in app/ needs different vars per target.
+  envByDir?: Record<string, string> | null;
   netlifySiteId?: string;
   // Target directory for Run/Deploy. null/undefined = unset (fall back to
   // .getxsite.json, then auto-detect); '' = explicitly the repo root;

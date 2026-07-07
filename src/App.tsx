@@ -404,17 +404,15 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const getStoredEnv = useCallback(
-    (): string => activeProject?.envContent ?? '',
-    [activeProject],
-  );
   // Ref mirrors so runDev (which keeps a deliberately minimal deps array
   // for identity stability) can read the active project's env content and
   // target-dir setting.
   const envContentRef = useRef<string>('');
+  const envByDirRef = useRef<Record<string, string>>({});
   const projectAppDirRef = useRef<string | null>(null);
   useEffect(() => {
     envContentRef.current = activeProject?.envContent ?? '';
+    envByDirRef.current = activeProject?.envByDir ?? {};
     projectAppDirRef.current = activeProject?.appDir ?? null;
   }, [activeProject]);
   // Session-scoped target choice from the open-time "site or app?" prompt.
@@ -425,6 +423,14 @@ export default function App() {
     const s = sessionAppDirRef.current;
     if (s && s.projectId === activeProjectIdRef.current) return s.dir;
     return projectAppDirRef.current;
+  }, []);
+  // Env for a target dir. The dir's own saved env wins; a dir with nothing
+  // saved falls back to the root env (covers single-app repos where vars
+  // were set once at the root). '' = the root env itself.
+  const envForDir = useCallback((dir: string): string => {
+    if (!dir) return envContentRef.current;
+    const own = envByDirRef.current[dir];
+    return own !== undefined && own.trim() !== '' ? own : envContentRef.current;
   }, []);
   const setStoredEnv = useCallback(
     (_repoKey: string, content: string) => {
@@ -715,6 +721,15 @@ export default function App() {
   // the auto-resync effect would re-run -> re-runDev -> setFiles ->
   // re-run effect, looping forever.
   const filesRef = useRef<FileEntry[]>(files);
+  // Env shown/edited in the panel is the CURRENT TARGET's env — the root env
+  // when working on the website, the app dir's env when working on the app.
+  // (Deliberately no root fallback here, unlike envForDir: the panel should
+  // show what's actually saved for the target, not a misleading copy.)
+  const getStoredEnv = useCallback((): string => {
+    const dir = resolveAppDir(filesRef.current, appDirOverride()).dir;
+    if (dir) return activeProject?.envByDir?.[dir] ?? '';
+    return activeProject?.envContent ?? '';
+  }, [activeProject, appDirOverride]);
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
@@ -764,33 +779,37 @@ export default function App() {
         setStatus('ready (no package.json)');
         return;
       }
-      // Project env vars are written to /.env.local at the repo root on
-      // project open — but bundlers load .env files from THEIR root (the
-      // cwd). When running from a subfolder, deliver a copy there too, or
-      // EXPO_PUBLIC_* / VITE_* vars silently come out undefined.
-      if (appDir && envContentRef.current) {
+      // Env is PER TARGET: the app dir's own saved env (falling back to the
+      // root env when the dir has none). Written into the target dir so the
+      // bundler's dotenv loading finds it…
+      const targetEnv = envForDir(appDir);
+      const envSourceLabel = appDir
+        ? envByDirRef.current[appDir]?.trim()
+          ? `env for ${appDir}/`
+          : 'root env (no env saved for this target yet)'
+        : 'root env';
+      if (appDir && targetEnv) {
         try {
-          await c.fs.writeFile(abs('.env.local'), envContentRef.current);
-          log(`Wrote ${abs('.env.local')} (project env)`, 'info');
+          await c.fs.writeFile(abs('.env.local'), targetEnv);
+          log(`Wrote ${abs('.env.local')} (${envSourceLabel})`, 'info');
         } catch (e) {
           log(`Failed to write ${abs('.env.local')}: ${(e as Error).message}`, 'err');
         }
       }
-      // Belt AND suspenders: also inject the vars straight into the process
-      // environment of everything we spawn. process.env beats .env files in
-      // Expo/Vite and is immune to file-location questions. The log line
-      // names the vars (never values) so an empty env panel is immediately
-      // visible in the terminal instead of failing silently downstream.
-      const envVars = parseEnvContent(envContentRef.current);
+      // …AND injected straight into the process environment of everything we
+      // spawn. process.env beats .env files in Expo/Vite and is immune to
+      // file-location questions. The log names the vars (never values) so an
+      // empty env is immediately visible instead of failing downstream.
+      const envVars = parseEnvContent(targetEnv);
       const envKeys = Object.keys(envVars);
       if (envKeys.length > 0) {
         log(
-          `Passing ${envKeys.length} project env var${envKeys.length === 1 ? '' : 's'} to the app: ${envKeys.join(', ')}`,
+          `Passing ${envKeys.length} env var${envKeys.length === 1 ? '' : 's'} (${envSourceLabel}): ${envKeys.join(', ')}`,
           'info',
         );
       } else {
         log(
-          'Project env is EMPTY — no vars passed. If the app needs EXPO_PUBLIC_* / VITE_* values, open "Env vars", paste them, and Save.',
+          `No env vars for this target (${envSourceLabel} is empty). If the app needs EXPO_PUBLIC_* / VITE_* values, open "Env vars" while working on this target, paste them, and Save.`,
           'info',
         );
       }
@@ -1638,30 +1657,55 @@ export default function App() {
     async (content: string, restart: boolean) => {
       const c = containerRef.current;
       if (!c || !currentRepoKey) return;
-      setStoredEnv(currentRepoKey, content);
-      // Keep the ref mirror in sync immediately — the runDev below fires
-      // before React re-renders activeProject through the effect.
-      envContentRef.current = content;
-      try {
-        await c.fs.writeFile('/.env.local', content);
-        log(`Saved .env.local for ${currentRepoKey}.`, 'info');
-        // Also deliver into the project's target dir — bundlers read .env
-        // from their cwd, not the repo root.
-        const appInfo = resolveAppDir(filesRef.current, appDirOverride());
-        if (appInfo.dir) {
-          await c.fs.writeFile(`/${appInfo.dir}/.env.local`, content);
-          log(`Saved /${appInfo.dir}/.env.local.`, 'info');
+      // Env is saved for the target currently being worked on: the root env
+      // and each app dir's env are separate (a Vite site and an Expo app in
+      // one repo need different vars).
+      const dir = resolveAppDir(filesRef.current, appDirOverride()).dir;
+      if (dir) {
+        const merged = { ...envByDirRef.current, [dir]: content };
+        // Sync the ref immediately — a restart-triggered runDev fires before
+        // React re-renders activeProject through the effect.
+        envByDirRef.current = merged;
+        if (activeProject) {
+          updateProjectFields(activeProject.id, { envByDir: merged })
+            .then((saved) =>
+              setProjects((prev) => prev.map((x) => (x.id === saved.id ? saved : x))),
+            )
+            .catch((e) => {
+              const msg = (e as Error).message;
+              log(`Couldn't persist env for ${dir}/: ${msg}`, 'err');
+              notify(
+                'error',
+                /env_by_dir/.test(msg)
+                  ? `Env for ${dir}/ applies this session but couldn't be saved — run the 20260707_project_app_dir migration in Supabase (adds projects.env_by_dir).`
+                  : `Couldn't persist env for ${dir}/: ${msg}`,
+              );
+            });
         }
-      } catch (e) {
-        log(`Failed to write .env.local: ${(e as Error).message}`, 'err');
-        return;
+        try {
+          await c.fs.writeFile(`/${dir}/.env.local`, content);
+          log(`Saved /${dir}/.env.local (env for ${dir}/).`, 'info');
+        } catch (e) {
+          log(`Failed to write /${dir}/.env.local: ${(e as Error).message}`, 'err');
+          return;
+        }
+      } else {
+        setStoredEnv(currentRepoKey, content);
+        envContentRef.current = content;
+        try {
+          await c.fs.writeFile('/.env.local', content);
+          log(`Saved .env.local for ${currentRepoKey} (root env).`, 'info');
+        } catch (e) {
+          log(`Failed to write .env.local: ${(e as Error).message}`, 'err');
+          return;
+        }
       }
       if (restart) {
         stopDev();
         setTimeout(() => runDev(), 200);
       }
     },
-    [currentRepoKey, log, runDev, setStoredEnv, stopDev],
+    [currentRepoKey, activeProject, log, notify, runDev, setStoredEnv, stopDev, appDirOverride],
   );
 
   const activeFile = files.find((f) => f.path === activePath) ?? null;
@@ -1911,22 +1955,33 @@ export default function App() {
     if (!c) return;
     try {
       setStatus('preparing download…');
-      const collected = await readAllFiles(c);
+      // Download follows the current target: working on the app → zip the
+      // app folder (paths rebased to its root) with the app's env; working
+      // on the website/root → zip the whole repo with the root env.
+      const dir = resolveAppDir(filesRef.current, appDirOverride()).dir;
+      const collected = await readAllFiles(c, dir ? `/${dir}` : '/');
       const zip = new JSZip();
+      const prefix = dir ? `${dir}/` : '';
       for (const f of collected) {
-        zip.file(f.path.replace(/^\//, ''), f.content);
+        const rel = f.path.replace(/^\//, '');
+        zip.file(
+          prefix && rel.startsWith(prefix) ? rel.slice(prefix.length) : rel,
+          f.content,
+        );
       }
-      if (activeProject?.envContent) {
-        zip.file('.env.local', activeProject.envContent);
+      const envOut = envForDir(dir);
+      if (envOut) {
+        zip.file('.env.local', envOut);
       }
       const blob = await zip.generateAsync({ type: 'blob' });
-      const baseName = activeProject?.repo && activeProject.branch
+      let baseName = activeProject?.repo && activeProject.branch
         ? `${activeProject.repo}-${activeProject.branch.replace(/\//g, '_')}`
         : activeProject
         ? activeProject.name.replace(/[^a-z0-9._-]+/gi, '_')
         : currentRepoKey
         ? `${currentRepoKey.split('/')[1]}-${(currentBranch ?? 'main').replace(/\//g, '_')}`
         : 'project';
+      if (dir) baseName += `-${dir.replace(/\//g, '_')}`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1935,10 +1990,13 @@ export default function App() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      log(`Downloaded ${baseName}.zip (${collected.length} files${activeProject?.envContent ? ' + .env.local' : ''}).`, 'info');
+      log(
+        `Downloaded ${baseName}.zip (${collected.length} files${dir ? ` from ${dir}/` : ''}${envOut ? ' + .env.local' : ''}).`,
+        'info',
+      );
       notify(
         'success',
-        `Downloaded ${baseName}.zip${activeProject?.envContent ? ' (with .env.local)' : ''}`,
+        `Downloaded ${baseName}.zip${envOut ? ' (with .env.local)' : ''}`,
       );
       setStatus('downloaded');
     } catch (e) {
@@ -1947,7 +2005,7 @@ export default function App() {
       notify('error', `Download failed: ${msg}`);
       setStatus('download failed');
     }
-  }, [activeProject, currentBranch, currentRepoKey, log, notify]);
+  }, [activeProject, currentBranch, currentRepoKey, log, notify, appDirOverride, envForDir]);
 
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
 
@@ -2128,28 +2186,30 @@ export default function App() {
             'info',
           );
         }
-        // Deliver project env into the app dir before building — expo export
-        // and vite build inline EXPO_PUBLIC_* / VITE_* vars at build time from
-        // the cwd's .env files.
-        if (appDir && activeProject?.envContent) {
+        // Deliver the TARGET's env into the app dir before building — expo
+        // export and vite build inline EXPO_PUBLIC_* / VITE_* vars at build
+        // time from the cwd's .env files. The dir's own saved env wins,
+        // falling back to the root env when the dir has none.
+        const targetEnv = envForDir(appDir);
+        if (appDir && targetEnv) {
           try {
-            await c.fs.writeFile(abs('.env.local'), activeProject.envContent);
+            await c.fs.writeFile(abs('.env.local'), targetEnv);
           } catch (e) {
             log(`Failed to write ${abs('.env.local')}: ${(e as Error).message}`, 'err');
           }
         }
         // Also inject env into the build's process environment — beats .env
         // files and is immune to file-location questions (same as runDev).
-        const envVars = parseEnvContent(activeProject?.envContent ?? '');
+        const envVars = parseEnvContent(targetEnv);
         const envKeys = Object.keys(envVars);
         if (envKeys.length > 0) {
           log(
-            `Passing ${envKeys.length} project env var${envKeys.length === 1 ? '' : 's'} to the build: ${envKeys.join(', ')}`,
+            `Passing ${envKeys.length} env var${envKeys.length === 1 ? '' : 's'} to the build (${appDir ? `env for ${appDir}/` : 'root env'}): ${envKeys.join(', ')}`,
             'info',
           );
         } else {
           log(
-            'Project env is EMPTY — building without env vars. If the app needs EXPO_PUBLIC_* / VITE_* values, set them via "Env vars" before deploying.',
+            'No env vars for this target — building without them. If the app needs EXPO_PUBLIC_* / VITE_* values, set them via "Env vars" while working on this target.',
             'info',
           );
         }
@@ -2453,7 +2513,11 @@ export default function App() {
         onRun={() => runDev()}
         onStop={stopDev}
         onDeploy={deploy}
-        repoKey={currentRepoKey}
+        repoKey={(() => {
+          if (!currentRepoKey) return currentRepoKey;
+          const dir = resolveAppDir(filesRef.current, appDirOverride()).dir;
+          return dir ? `${currentRepoKey} → ${dir}/` : `${currentRepoKey} → root`;
+        })()}
         envContent={getStoredEnv()}
         exampleEnv={exampleEnv}
         onSaveEnv={saveEnv}
