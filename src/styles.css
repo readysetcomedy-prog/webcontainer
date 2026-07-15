@@ -5281,3 +5281,7 @@ button.primary:hover:not(:disabled) {
 .tube-save-btn {
   font-size: 13px;
 }
+
+.tube-strategy .tube-card-body {
+  line-height: 1.6;
+}

@@ -9,6 +9,8 @@ export interface GetTubeTopResult {
   views: number;
   ageDays: number;
   viewsPerDay: number;
+  durationSec: number;
+  isShort: boolean;
   exactish: boolean;
 }
 
@@ -16,12 +18,16 @@ export interface GetTubeQueryMetrics {
   query: string;
   approxTotalResults: number;
   top: GetTubeTopResult[];
-  medianViews: number;
+  searchDemandScore: number;
+  autocompleteHit: boolean;
+  autocompleteSuggestions: string[];
+  topicHeat: number;
   medianViewsPerDay: number;
-  demandProxy: number;
+  exactMatchCount: number;
+  liveExactMatch: boolean;
   smallChannelShare: number;
   recentShare: number;
-  exactMatchCount: number;
+  shortsShare: number;
   error?: string;
 }
 
@@ -40,9 +46,10 @@ export interface GetTubePackage {
   opening: string;
   risks: string[];
   requiredImprovement: string | null;
+  strategy?: { searchWedge: string; algorithmPlay: string };
   opportunity: {
-    youtubeSearch: 'low' | 'moderate' | 'high';
-    browse: 'low' | 'moderate' | 'high';
+    search: 'low' | 'moderate' | 'high';
+    algorithm: 'low' | 'moderate' | 'high';
   };
   confidence: 'low' | 'moderate' | 'high';
 }

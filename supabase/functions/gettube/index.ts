@@ -61,6 +61,30 @@ async function claude(
   return text;
 }
 
+// Call Claude and parse a JSON object from the reply, retrying once with a
+// harder instruction if the first reply has no parseable object (the model
+// occasionally preambles or spends its budget reasoning).
+async function claudeJson<T>(
+  apiKey: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+): Promise<T> {
+  const first = await claude(apiKey, system, user, maxTokens);
+  try {
+    return parseJsonLoose<T>(first);
+  } catch {
+    const retry = await claude(
+      apiKey,
+      system,
+      user +
+        '\n\nIMPORTANT: Respond with ONLY the JSON object. Start your reply with { and end with }. No preamble, no explanation, no markdown code fences.',
+      maxTokens,
+    );
+    return parseJsonLoose<T>(retry);
+  }
+}
+
 // Claude is asked for pure JSON; strip markdown fences defensively.
 function parseJsonLoose<T>(text: string): T {
   const cleaned = text
@@ -83,14 +107,29 @@ interface QueryMetrics {
     views: number;
     ageDays: number;
     viewsPerDay: number;
+    durationSec: number;
+    isShort: boolean;
     exactish: boolean;
   }>;
-  medianViews: number;
+  // SEARCH DEMAND — does the phrase actually get typed? Derived from YouTube
+  // autocomplete: whether the phrase auto-suggests and how many completions it
+  // spawns. This is the honest "searched a lot?" signal; it is NOT the
+  // topic-heat number below. 0 = ghost phrase, 100 = strongly searched.
+  searchDemandScore: number;
+  autocompleteHit: boolean;
+  autocompleteSuggestions: string[];
+  // TOPIC HEAT — how much attention the CONTENT ranking here pulls (mostly from
+  // the algorithm, not search). This is the size of the Suggested stream you
+  // could be pulled into. medianViews / topicHeat are the same idea.
+  topicHeat: number; // median views of top results
   medianViewsPerDay: number;
-  demandProxy: number; // sum of views/day across top 5 — what ranking there earns today
-  smallChannelShare: number; // fraction of top results from channels < 20k subs
+  // OPEN LANE — is the specific search slot winnable?
+  exactMatchCount: number; // titles that closely answer the query
+  liveExactMatch: boolean; // is any exact match actually getting views (>1/day)?
+  smallChannelShare: number; // fraction of ranking channels < 20k subs
   recentShare: number; // fraction newer than 18 months
-  exactMatchCount: number;
+  // FORMAT — is the ranking content Shorts or long-form? Measured, not guessed.
+  shortsShare: number; // fraction of top results that are Shorts (<=60s)
   error?: string;
 }
 
@@ -99,6 +138,13 @@ function median(nums: number[]): number {
   const s = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+}
+
+// ISO 8601 duration (e.g. PT4M13S) → seconds.
+function parseDurationSec(iso: string): number {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (+(m[1] ?? 0)) * 3600 + (+(m[2] ?? 0)) * 60 + (+(m[3] ?? 0));
 }
 
 // Loose "does the title answer this query" check: at least 60% of the query's
@@ -112,19 +158,71 @@ function exactish(query: string, title: string): boolean {
   return hits / words.length >= 0.6;
 }
 
+// YouTube autocomplete = the honest search-demand signal. The public suggest
+// endpoint returns what YouTube predicts people type. We score:
+//   - exact/near-exact completion of the phrase → strongly searched
+//   - number of related completions → breadth of demand
+// This measures whether a phrase is TYPED, unlike view-count proxies which
+// measure how popular the ranking content is.
+async function autocompleteSignal(
+  query: string,
+): Promise<{ score: number; hit: boolean; suggestions: string[] }> {
+  try {
+    const url =
+      'https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&ds=yt&hl=en&q=' +
+      encodeURIComponent(query);
+    const res = await fetch(url);
+    if (!res.ok) return { score: 0, hit: false, suggestions: [] };
+    const text = await res.text();
+    // Response is JSONP: window.google.ac.h([...]) — extract the array.
+    const start = text.indexOf('(');
+    const end = text.lastIndexOf(')');
+    const arr = JSON.parse(text.slice(start + 1, end));
+    const suggestions: string[] = (arr[1] ?? [])
+      .map((s: unknown) => (Array.isArray(s) ? String(s[0]) : String(s)))
+      .filter(Boolean);
+    const q = query.toLowerCase().trim();
+    const norm = suggestions.map((s) => s.toLowerCase());
+    const exactHit = norm.includes(q);
+    const prefixHit = norm.some((s) => s.startsWith(q));
+    const containsHits = norm.filter((s) => s.includes(q.split(' ').slice(0, 3).join(' '))).length;
+    // Score: exact completion is the strongest signal; prefix next; then
+    // breadth of related suggestions (capped). No suggestions at all = ghost.
+    let score = 0;
+    if (exactHit) score += 55;
+    else if (prefixHit) score += 35;
+    score += Math.min(suggestions.length, 10) * 3; // up to 30 for breadth
+    score += Math.min(containsHits, 5) * 3; // up to 15 for relevance density
+    return {
+      score: Math.min(100, score),
+      hit: exactHit || prefixHit,
+      suggestions: suggestions.slice(0, 8),
+    };
+  } catch {
+    return { score: 0, hit: false, suggestions: [] };
+  }
+}
+
 async function researchQuery(ytKey: string, query: string): Promise<QueryMetrics> {
   const base: QueryMetrics = {
     query,
     approxTotalResults: 0,
     top: [],
-    medianViews: 0,
+    searchDemandScore: 0,
+    autocompleteHit: false,
+    autocompleteSuggestions: [],
+    topicHeat: 0,
     medianViewsPerDay: 0,
-    demandProxy: 0,
+    exactMatchCount: 0,
+    liveExactMatch: false,
     smallChannelShare: 0,
     recentShare: 0,
-    exactMatchCount: 0,
+    shortsShare: 0,
   };
   try {
+    // Search-demand signal (autocomplete) runs alongside the ranking research.
+    const acPromise = autocompleteSignal(query);
+
     const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
     searchUrl.searchParams.set('part', 'snippet');
     searchUrl.searchParams.set('q', query);
@@ -138,18 +236,26 @@ async function researchQuery(ytKey: string, query: string): Promise<QueryMetrics
     base.approxTotalResults = sData.pageInfo?.totalResults ?? 0;
     const items: Array<{ id: { videoId: string }; snippet: { title: string; channelId: string; channelTitle: string; publishedAt: string } }> =
       sData.items ?? [];
+
+    const ac = await acPromise;
+    base.searchDemandScore = ac.score;
+    base.autocompleteHit = ac.hit;
+    base.autocompleteSuggestions = ac.suggestions;
+
     if (items.length === 0) return base;
 
     const videoIds = items.map((i) => i.id.videoId).filter(Boolean);
     const vUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
-    vUrl.searchParams.set('part', 'statistics');
+    vUrl.searchParams.set('part', 'statistics,contentDetails');
     vUrl.searchParams.set('id', videoIds.join(','));
     vUrl.searchParams.set('key', ytKey);
     const vRes = await fetch(vUrl);
     const vData = vRes.ok ? await vRes.json() : { items: [] };
     const viewsById = new Map<string, number>();
+    const durById = new Map<string, number>();
     for (const v of vData.items ?? []) {
       viewsById.set(v.id, parseInt(v.statistics?.viewCount ?? '0', 10) || 0);
+      durById.set(v.id, parseDurationSec(v.contentDetails?.duration ?? 'PT0S'));
     }
 
     const channelIds = [...new Set(items.map((i) => i.snippet.channelId))];
@@ -172,6 +278,7 @@ async function researchQuery(ytKey: string, query: string): Promise<QueryMetrics
     const now = Date.now();
     base.top = items.map((i) => {
       const views = viewsById.get(i.id.videoId) ?? 0;
+      const durationSec = durById.get(i.id.videoId) ?? 0;
       const ageDays = Math.max(
         1,
         Math.round((now - new Date(i.snippet.publishedAt).getTime()) / 86_400_000),
@@ -183,21 +290,27 @@ async function researchQuery(ytKey: string, query: string): Promise<QueryMetrics
         views,
         ageDays,
         viewsPerDay: Math.round((views / ageDays) * 10) / 10,
+        durationSec,
+        isShort: durationSec > 0 && durationSec <= 60,
         exactish: exactish(query, i.snippet.title),
       };
     });
-    base.medianViews = median(base.top.map((t) => t.views));
+    base.topicHeat = median(base.top.map((t) => t.views));
     base.medianViewsPerDay = median(base.top.map((t) => t.viewsPerDay));
-    base.demandProxy = Math.round(
-      base.top.slice(0, 5).reduce((s, t) => s + t.viewsPerDay, 0),
-    );
     const withSubs = base.top.filter((t) => t.channelSubs !== null);
     base.smallChannelShare = withSubs.length
       ? Math.round((withSubs.filter((t) => (t.channelSubs ?? 0) < 20_000).length / withSubs.length) * 100) / 100
       : 0;
     base.recentShare =
       Math.round((base.top.filter((t) => t.ageDays < 548).length / base.top.length) * 100) / 100;
-    base.exactMatchCount = base.top.filter((t) => t.exactish).length;
+    base.shortsShare =
+      Math.round((base.top.filter((t) => t.isShort).length / base.top.length) * 100) / 100;
+    const exacts = base.top.filter((t) => t.exactish);
+    base.exactMatchCount = exacts.length;
+    // Is any exact-match video actually alive (pulling >1 view/day)? A dead
+    // exact match (e.g. 170 views in 3 years) means the phrase is a ghost town —
+    // the slot is open, but only because nobody searches it.
+    base.liveExactMatch = exacts.some((t) => t.viewsPerDay > 1);
     return base;
   } catch (e) {
     base.error = (e as Error).message;
@@ -207,9 +320,22 @@ async function researchQuery(ytKey: string, query: string): Promise<QueryMetrics
 
 const EXTRACT_SYSTEM = `You analyze a YouTube video concept and output ONLY a JSON object, no prose, of the shape:
 {"topic": string, "coreQuestion": string, "audience": string, "candidateQueries": string[]}
-candidateQueries: 6 to 8 search phrases real people would type into YouTube or Google that this video could satisfy. Mix phrasings: question forms, short keyword forms, misconception forms. Order by your prior guess of demand. Lowercase, no punctuation beyond apostrophes.`;
+candidateQueries: 6 to 8 search phrases real people would type into YouTube that this video could satisfy. Include a mix: some SHORTER head phrases (2-4 words people actually type, e.g. "transitional species", "why still monkeys") AND some longer question forms. Shorter phrases usually have real search demand; long exact-sentence phrases often don't. Lowercase, no punctuation beyond apostrophes.`;
 
-const SYNTH_SYSTEM = `You are a YouTube publishing strategist. You receive a video concept and REAL research data about what currently ranks on YouTube for candidate search queries (views/day of ranking videos = demand proxy; channel sizes; result ages; exact-match counts = competition quality).
+const SYNTH_SYSTEM = `You are a YouTube publishing strategist. You receive a video concept and REAL research data per candidate query. Read the signals CORRECTLY — they mean different things:
+
+- searchDemandScore (0-100) + autocompleteHit + autocompleteSuggestions = whether the phrase is ACTUALLY TYPED into search. This is the ONLY real search-demand signal. HIGH = people search it; LOW/0 = ghost phrase almost nobody types, no matter how it looks elsewhere.
+- topicHeat / medianViewsPerDay = how much attention the CONTENT ranking here pulls. This is mostly ALGORITHM traffic (Suggested/Browse), i.e. the size of the recommendation stream you could be pulled into. It is NOT search demand. A high topicHeat with a LOW searchDemandScore means: big topic, but the views come from the algorithm, not from typing this phrase.
+- exactMatchCount + liveExactMatch = is the search slot open? liveExactMatch=false means the only exact matches are DEAD (getting ~no views) → the slot is open ONLY because the phrase isn't really searched (confirm with searchDemandScore). liveExactMatch=true with high views = slot is taken.
+- smallChannelShare = can a small/new channel break in (relevance beats authority).
+- shortsShare = fraction of ranking results that are Shorts. HIGH shortsShare means a long-form video is fighting format — only flag a Shorts risk when shortsShare is actually high (>0.4). NEVER invent a Shorts concern from phrasing.
+- recentShare = is the topic active now.
+
+THE TWO GAMES (weigh both):
+1. SEARCH game — win when searchDemandScore is genuinely high AND (exactMatchCount low OR no liveExactMatch) AND smallChannelShare decent. This earns steady, durable search traffic and is the most winnable surface for a small channel.
+2. ALGORITHM game — win when topicHeat is high (big Suggested stream) AND the packaging can earn the click+retention. This is where the big numbers are, but a small channel usually needs a SEARCH win first as the wedge that proves quality and triggers Suggested pickup.
+
+Pick the primaryQuery that best combines REAL searchDemandScore + open lane + intent match with the video. Do NOT pick a high-topicHeat phrase that has a low searchDemandScore and call it a search opportunity — say plainly its traffic would come from the algorithm, not the keyword.
 
 Output ONLY a JSON object, no prose:
 {
@@ -227,19 +353,23 @@ Output ONLY a JSON object, no prose:
   "opening": string,
   "risks": string[],
   "requiredImprovement": string | null,
-  "opportunity": {"youtubeSearch": "low"|"moderate"|"high", "browse": "low"|"moderate"|"high"},
+  "strategy": {"searchWedge": string, "algorithmPlay": string},
+  "opportunity": {"search": "low"|"moderate"|"high", "algorithm": "low"|"moderate"|"high"},
   "confidence": "low" | "moderate" | "high"
 }
 
 Rules:
-- Be decisive: ONE title, not options. altThumbnailText is the only allowed alternative.
-- Ground every judgment in the research numbers. High demandProxy + high smallChannelShare + low exactMatchCount = real opportunity. Big-channel-dominated results with strong exact matches = weak search opportunity (browse/suggested must carry it).
+- Be decisive: ONE title, not options. altThumbnailText is the only allowed alternative. When search is the goal, the title should contain the primaryQuery's words so it can BE the search result.
+- strategy.searchWedge: the specific query to target for a winnable search entry (or "none — this is an algorithm/browse play" if no query has real search demand). strategy.algorithmPlay: what the thumbnail/hook must do to earn Suggested placement on the hot topic.
+- opportunity.search reflects real searchDemandScore + open lane. opportunity.algorithm reflects topicHeat + winnability. They are independent — a video can be low search / high algorithm.
 - description: first 2 sentences carry the search weight; then 2-3 natural sentences. No hashtag spam.
 - chapters: only if the concept implies clear structure; timestamps as placeholders like 00:00.
 - opening: 60-90 words, answers or firmly promises the title's question inside the first 30 seconds.
-- NEVER fabricate view forecasts or invented statistics. Opportunity tiers and confidence only.
-- If the concept's natural framing has weak demand but the content is good, verdict "reframe" with a specific stronger angle.
-- tags: max 12, honest note-free.`;
+- NEVER fabricate view forecasts or invented statistics. Tiers and confidence only.
+- If the natural framing has weak real search demand but the topic is hot, don't call it a skip — verdict "make" or "reframe" and be explicit it's an algorithm/browse play carried by packaging, not a search play.
+- tags: max 12.
+
+Respond with ONLY the JSON object. Start with { and end with }. No preamble, no explanation, no markdown fences.`;
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
@@ -273,18 +403,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   try {
     // 1. Extract topic + candidate queries.
-    const extractRaw = await claude(
-      anthropicKey,
-      EXTRACT_SYSTEM,
-      `VIDEO CONCEPT / SCRIPT:\n\n${description}`,
-      1_000,
-    );
-    const extracted = parseJsonLoose<{
+    const extracted = await claudeJson<{
       topic: string;
       coreQuestion: string;
       audience: string;
       candidateQueries: string[];
-    }>(extractRaw);
+    }>(anthropicKey, EXTRACT_SYSTEM, `VIDEO CONCEPT / SCRIPT:\n\n${description}`, 1_500);
     const queries = (extracted.candidateQueries ?? []).slice(0, 8);
     if (queries.length === 0) throw new Error('No candidate queries extracted');
 
@@ -295,14 +419,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       research.push(await researchQuery(ytKey, q));
     }
 
-    // 4. Synthesize the decisive package.
-    const synthRaw = await claude(
+    // 4. Synthesize the decisive package. Generous token budget so any
+    // reasoning tokens don't starve the JSON output.
+    const pkg = await claudeJson<Record<string, unknown>>(
       anthropicKey,
       SYNTH_SYSTEM,
       `VIDEO CONCEPT / SCRIPT:\n\n${description}\n\nEXTRACTED: ${JSON.stringify(extracted)}\n\nRESEARCH DATA (per candidate query):\n${JSON.stringify(research, null, 1)}`,
-      3_000,
+      8_000,
     );
-    const pkg = parseJsonLoose<Record<string, unknown>>(synthRaw);
 
     return json({ package: pkg, extracted, research });
   } catch (e) {

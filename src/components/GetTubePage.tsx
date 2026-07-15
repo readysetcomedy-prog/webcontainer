@@ -257,15 +257,15 @@ export default function GetTubePage() {
               <div className="tube-card-head">Opportunity</div>
               <div className="tube-card-body">
                 <div>
-                  YouTube search:{' '}
-                  <strong className={`tube-tier-${pkg.opportunity.youtubeSearch}`}>
-                    {pkg.opportunity.youtubeSearch}
+                  Search game:{' '}
+                  <strong className={`tube-tier-${pkg.opportunity.search}`}>
+                    {pkg.opportunity.search}
                   </strong>
                 </div>
                 <div>
-                  Browse / suggested:{' '}
-                  <strong className={`tube-tier-${pkg.opportunity.browse}`}>
-                    {pkg.opportunity.browse}
+                  Algorithm / suggested:{' '}
+                  <strong className={`tube-tier-${pkg.opportunity.algorithm}`}>
+                    {pkg.opportunity.algorithm}
                   </strong>
                 </div>
                 <div>
@@ -274,6 +274,20 @@ export default function GetTubePage() {
               </div>
             </div>
           </div>
+
+          {pkg.strategy && (
+            <div className="tube-card tube-wide tube-strategy">
+              <div className="tube-card-head">How to actually win this</div>
+              <div className="tube-card-body">
+                <div>
+                  <strong>Search wedge:</strong> {pkg.strategy.searchWedge}
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <strong>Algorithm play:</strong> {pkg.strategy.algorithmPlay}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="tube-card tube-wide">
             <div className="tube-card-head">
@@ -354,28 +368,66 @@ function ResearchTable({ research }: { research: GetTubeQueryMetrics[] }) {
         <thead>
           <tr>
             <th>Candidate query</th>
-            <th title="Sum of views/day across the top 5 ranking videos — what ranking there earns today">
-              Demand proxy
+            <th title="Is the phrase ACTUALLY typed into search? From YouTube autocomplete. This is real search demand — not view counts.">
+              Search demand
             </th>
-            <th title="Median views of the top 10">Median views</th>
-            <th title="Share of top results from channels under 20k subs">
-              Small channels
+            <th title="How much attention the content ranking here pulls — mostly from the algorithm (Suggested/Browse). The size of the recommendation stream, NOT search volume.">
+              Topic heat
+            </th>
+            <th title="Titles that closely answer the query, and whether any is actually alive (getting views). Dead exact matches = the phrase is a ghost town.">
+              Exact / live
+            </th>
+            <th title="Share of ranking channels under 20k subs — can a small channel break in">
+              Small ch.
+            </th>
+            <th title="Share of ranking results that are Shorts (≤60s)">
+              Shorts
             </th>
             <th title="Share of top results newer than 18 months">Recent</th>
-            <th title="Top results whose titles closely answer the query">
-              Exact matches
-            </th>
           </tr>
         </thead>
         <tbody>
           {research.map((r) => (
             <tr key={r.query}>
               <td>{r.error ? `${r.query} — error: ${r.error}` : r.query}</td>
-              <td>{fmtNum(r.demandProxy)}/day</td>
-              <td>{fmtNum(r.medianViews)}</td>
+              <td>
+                <span
+                  className={
+                    r.searchDemandScore >= 55
+                      ? 'tube-tier-high'
+                      : r.searchDemandScore >= 25
+                      ? 'tube-tier-moderate'
+                      : 'tube-tier-low'
+                  }
+                  title={
+                    r.autocompleteSuggestions.length
+                      ? 'autocompletes: ' + r.autocompleteSuggestions.join(' · ')
+                      : 'no autocomplete — likely a ghost phrase'
+                  }
+                >
+                  {r.searchDemandScore}
+                  {r.autocompleteHit ? ' ✓' : ''}
+                </span>
+              </td>
+              <td>{fmtNum(r.topicHeat)}</td>
+              <td>
+                {r.exactMatchCount}/10{' '}
+                {r.exactMatchCount > 0 && (
+                  <span
+                    className={r.liveExactMatch ? 'tube-tier-low' : 'tube-tier-high'}
+                    title={
+                      r.liveExactMatch
+                        ? 'an exact match is alive — slot is taken'
+                        : 'exact matches are dead — slot open (but check search demand)'
+                    }
+                  >
+                    {r.liveExactMatch ? '(taken)' : '(dead)'}
+                  </span>
+                )}
+              </td>
               <td>{Math.round(r.smallChannelShare * 100)}%</td>
+              <td>{Math.round(r.shortsShare * 100)}%</td>
               <td>{Math.round(r.recentShare * 100)}%</td>
-              <td>{r.exactMatchCount}/10</td>
             </tr>
           ))}
         </tbody>
