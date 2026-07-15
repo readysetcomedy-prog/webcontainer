@@ -5206,3 +5206,78 @@ button.primary:hover:not(:disabled) {
     grid-template-columns: 1fr;
   }
 }
+
+.tube-saved {
+  margin-top: 18px;
+}
+
+.tube-saved-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--fg-dim);
+  margin-bottom: 8px;
+}
+
+.tube-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tube-saved-item {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  background: var(--bg-2, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tube-saved-item.active {
+  border-color: var(--accent, #3b82f6);
+}
+
+.tube-saved-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tube-saved-open:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tube-saved-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tube-saved-meta {
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.tube-saved-del {
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.tube-result-bar {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 20px;
+}
+
+.tube-save-btn {
+  font-size: 13px;
+}

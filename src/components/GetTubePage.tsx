@@ -1,9 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   analyzeVideo,
   GetTubeAnalysis,
   GetTubeQueryMetrics,
 } from '../lib/gettube';
+import {
+  deleteAnalysis,
+  listAnalyses,
+  saveAnalysis,
+  SavedAnalysis,
+} from '../lib/gettubeStore';
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -41,10 +47,22 @@ export default function GetTubePage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GetTubeAnalysis | null>(null);
   const [showResearch, setShowResearch] = useState(false);
+  const [saved, setSaved] = useState<SavedAnalysis[]>([]);
+  const [savedError, setSavedError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  // Which saved row the current result came from (null = fresh unsaved run).
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    listAnalyses()
+      .then(setSaved)
+      .catch((e) => setSavedError((e as Error).message));
+  }, []);
 
   async function run() {
     setError(null);
     setResult(null);
+    setLoadedId(null);
     setBusy(true);
     try {
       const r = await analyzeVideo(description);
@@ -53,6 +71,40 @@ export default function GetTubePage() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function save() {
+    if (!result) return;
+    setSaving(true);
+    setSavedError(null);
+    try {
+      const row = await saveAnalysis(description, result);
+      setSaved((prev) => [row, ...prev]);
+      setLoadedId(row.id);
+    } catch (e) {
+      setSavedError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function load(row: SavedAnalysis) {
+    setResult(row.result);
+    setDescription(row.description);
+    setLoadedId(row.id);
+    setError(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function remove(id: string) {
+    if (!confirm('Delete this saved analysis?')) return;
+    try {
+      await deleteAnalysis(id);
+      setSaved((prev) => prev.filter((s) => s.id !== id));
+      if (loadedId === id) setLoadedId(null);
+    } catch (e) {
+      setSavedError((e as Error).message);
     }
   }
 
@@ -99,8 +151,62 @@ export default function GetTubePage() {
         {error && <div className="gt-warn">{error}</div>}
       </section>
 
+      {(saved.length > 0 || savedError) && (
+        <section className="tube-saved">
+          <div className="tube-saved-head">
+            Saved analyses <span className="gt-muted">({saved.length})</span>
+          </div>
+          {savedError && <div className="gt-warn">{savedError}</div>}
+          <div className="tube-saved-list">
+            {saved.map((s) => (
+              <div
+                key={s.id}
+                className={`tube-saved-item ${loadedId === s.id ? 'active' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="tube-saved-open"
+                  onClick={() => load(s)}
+                  title="Load this saved analysis (no credits used)"
+                >
+                  <span className="tube-saved-title">
+                    {s.title ?? 'Untitled'}
+                  </span>
+                  <span className="tube-saved-meta">
+                    {new Date(s.createdAt).toLocaleDateString()} ·{' '}
+                    {s.result.package?.verdict ?? '—'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="gt-link tube-saved-del"
+                  onClick={() => remove(s.id)}
+                  title="Delete"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {pkg && verdict && (
         <section className="tube-results">
+          <div className="tube-result-bar">
+            {loadedId ? (
+              <span className="gt-muted">Loaded from saved · no credits used</span>
+            ) : (
+              <button
+                type="button"
+                className="gt-btn gt-btn-primary tube-save-btn"
+                onClick={save}
+                disabled={saving}
+              >
+                {saving ? 'Saving…' : '★ Save this analysis'}
+              </button>
+            )}
+          </div>
           <div className={`tube-verdict ${verdict.cls}`}>
             <div className="tube-verdict-label">{verdict.label}</div>
             <div className="tube-verdict-reason">{pkg.verdictReason}</div>
