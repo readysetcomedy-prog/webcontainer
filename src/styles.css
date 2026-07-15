@@ -5034,3 +5034,175 @@ button.primary:hover:not(:disabled) {
     max-width: 480px;
   }
 }
+
+/* ============ GetTube ============ */
+
+.tube-shell {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.tube-tagline {
+  font-size: 12px;
+}
+
+.tube-input textarea {
+  width: 100%;
+  background: var(--bg-2, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.tube-input textarea:focus {
+  outline: none;
+  border-color: var(--accent, #3b82f6);
+}
+
+.tube-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.tube-input-actions .gt-muted {
+  font-size: 12px;
+  max-width: 560px;
+}
+
+.tube-results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.tube-verdict {
+  border-radius: 8px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+}
+
+.tube-verdict-make {
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.tube-verdict-reframe {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.tube-verdict-skip {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.tube-verdict-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.tube-verdict-make .tube-verdict-label { color: #4ade80; }
+.tube-verdict-reframe .tube-verdict-label { color: #fbbf24; }
+.tube-verdict-skip .tube-verdict-label { color: #f87171; }
+
+.tube-verdict-reason {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tube-reframe {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.tube-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.tube-card {
+  background: var(--bg-2, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.tube-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--fg-dim);
+  margin-bottom: 8px;
+}
+
+.tube-card-body {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.tube-title-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.tube-thumb-text {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.tube-alt {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.tube-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.tube-list li {
+  margin-bottom: 3px;
+}
+
+.tube-prewrap {
+  white-space: pre-wrap;
+}
+
+.tube-wide {
+  width: 100%;
+}
+
+.tube-risks .tube-required {
+  margin-bottom: 8px;
+  color: #fbbf24;
+}
+
+.tube-tier-high { color: #4ade80; }
+.tube-tier-moderate { color: #fbbf24; }
+.tube-tier-low { color: #f87171; }
+
+@media (max-width: 768px) {
+  .tube-grid {
+    grid-template-columns: 1fr;
+  }
+}

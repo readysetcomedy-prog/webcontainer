@@ -129,6 +129,9 @@ export default function Toolbar({
       <a className="toolbar-link" href="/gettrading">
         GetTrading
       </a>
+      <a className="toolbar-link" href="/gettube">
+        GetTube
+      </a>
       {activeProject && (
         <div
           className="toolbar-active-project"

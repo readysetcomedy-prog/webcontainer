@@ -10,6 +10,7 @@ import Preview from './components/Preview';
 import Terminal from './components/Terminal';
 import ProjectsSection from './components/ProjectsSection';
 import GetTradingPage from './components/GetTradingPage';
+import GetTubePage from './components/GetTubePage';
 import type { FileEntry, LogLine } from './types';
 import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
 import type { GhUser } from './lib/github';
@@ -2400,6 +2401,8 @@ export default function App() {
     pathname === '/app' || pathname.startsWith('/app/');
   const isGetTradingRoute =
     pathname === '/gettrading' || pathname.startsWith('/gettrading/');
+  const isGetTubeRoute =
+    pathname === '/gettube' || pathname.startsWith('/gettube/');
 
   if (isGetTradingRoute) {
     if (authChecking) {
@@ -2407,6 +2410,14 @@ export default function App() {
     }
     if (!session) return <LoginGate />;
     return <GetTradingPage />;
+  }
+
+  if (isGetTubeRoute) {
+    if (authChecking) {
+      return <div className="login-shell"><div className="login-card">Loading…</div></div>;
+    }
+    if (!session) return <LoginGate />;
+    return <GetTubePage />;
   }
 
   if (!isAppRoute) {
