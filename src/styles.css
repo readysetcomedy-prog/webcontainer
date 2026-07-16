@@ -23,20 +23,51 @@ html, body, #root {
   font-size: 13px;
 }
 
+/* The app must never exceed the viewport width. Without this a wide toolbar
+   (its intrinsic content width) can push the whole page wider than the window,
+   which is what caused the preview / right-hand panels to clip until the
+   window was stretched very wide. */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 .app {
   display: grid;
+  /* Explicit single column pinned to the container width. Without a column
+     track the grid column defaults to `auto` and sizes to its widest child
+     (the toolbar), forcing the whole app wider than the viewport. minmax(0,1fr)
+     keeps it exactly viewport-width and lets the rows manage their own
+     overflow. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 44px 1fr;
   height: 100%;
+  width: 100%;
 }
 
 .toolbar {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   padding: 0 16px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
+  /* Scroll the toolbar itself when the window is narrower than its buttons,
+     instead of pushing the whole app wide. Popovers are position:fixed so this
+     overflow doesn't clip them. */
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar > * {
+  flex: 0 0 auto;
 }
 
 .brand {
@@ -1468,10 +1499,15 @@ button:disabled {
 }
 
 .popover {
-  position: absolute;
+  /* Fixed (not absolute) so the toolbar's overflow-x scroll can't clip it.
+     Anchored just under the toolbar at the top-right of the viewport, which
+     is where it sat before. */
+  position: fixed;
   top: 48px;
   right: 16px;
   width: 380px;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1479,7 +1515,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  z-index: 10;
+  z-index: 1000;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
 }
 
@@ -2929,6 +2965,7 @@ button.primary:hover:not(:disabled) {
 
 .main {
   min-height: 0;
+  min-width: 0;
   flex: 1;
 }
 
