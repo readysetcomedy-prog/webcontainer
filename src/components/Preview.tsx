@@ -46,6 +46,10 @@ export default function Preview({
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [addressInput, setAddressInput] = useState('');
+  // Preview zoom. <1 renders the app at a WIDER logical viewport and scales it
+  // down to fit — so a desktop-width app that clips in a narrow panel becomes
+  // fully visible. The app reflows to the wider width; it isn't just shrunk.
+  const [zoom, setZoom] = useState(1);
   const lastSeededUrl = useRef<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -218,6 +222,20 @@ export default function Preview({
           placeholder={url ?? 'Preview URL will appear here…'}
           spellCheck={false}
         />
+        <select
+          className="preview-zoom"
+          value={String(zoom)}
+          onChange={(e) => setZoom(parseFloat(e.target.value))}
+          title="Zoom the preview out to fit a wide app into the panel"
+        >
+          <option value="1">100%</option>
+          <option value="0.9">90%</option>
+          <option value="0.75">75%</option>
+          <option value="0.6">60%</option>
+          <option value="0.5">50%</option>
+          <option value="0.4">40%</option>
+          <option value="0.33">33%</option>
+        </select>
         <span className="preview-status">{status}</span>
       </div>
       {devError && (
@@ -260,7 +278,15 @@ export default function Preview({
             title={`Preview ${t.id}`}
             allow="cross-origin-isolated"
             sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-storage-access-by-user-activation allow-downloads"
-            style={{ display: t.id === activeId ? 'block' : 'none' }}
+            style={{
+              display: t.id === activeId ? 'block' : 'none',
+              // Render the iframe at 1/zoom size so the app lays out for that
+              // wider viewport, then scale it back down to fill the panel.
+              width: `${100 / zoom}%`,
+              height: `${100 / zoom}%`,
+              transform: zoom === 1 ? undefined : `scale(${zoom})`,
+              transformOrigin: 'top left',
+            }}
           />
         ))}
       </div>

@@ -5285,3 +5285,15 @@ button.primary:hover:not(:disabled) {
 .tube-strategy .tube-card-body {
   line-height: 1.6;
 }
+
+.preview-zoom {
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
