@@ -278,15 +278,20 @@ export default function Preview({
             title={`Preview ${t.id}`}
             allow="cross-origin-isolated"
             sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-storage-access-by-user-activation allow-downloads"
-            style={{
-              display: t.id === activeId ? 'block' : 'none',
-              // Render the iframe at 1/zoom size so the app lays out for that
-              // wider viewport, then scale it back down to fill the panel.
-              width: `${100 / zoom}%`,
-              height: `${100 / zoom}%`,
-              transform: zoom === 1 ? undefined : `scale(${zoom})`,
-              transformOrigin: 'top left',
-            }}
+            style={
+              zoom === 1
+                ? { display: t.id === activeId ? 'block' : 'none' }
+                : {
+                    display: t.id === activeId ? 'block' : 'none',
+                    // Render the iframe at 1/zoom size so the app lays out for
+                    // that wider viewport, then scale it back to fill the
+                    // panel. The parent (.preview-frames) clips the overflow.
+                    width: `${100 / zoom}%`,
+                    height: `${100 / zoom}%`,
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                  }
+            }
           />
         ))}
       </div>

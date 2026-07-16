@@ -3665,6 +3665,9 @@ button.primary:hover:not(:disabled) {
   position: relative;
   background: #fff;
   min-height: 0;
+  /* Clip a zoomed (scaled-up-then-down) iframe so it can never overflow the
+     panel and blow out the whole app layout. */
+  overflow: hidden;
 }
 
 .preview-error {
