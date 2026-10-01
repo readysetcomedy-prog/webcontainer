@@ -12,7 +12,12 @@ import ProjectsSection from './components/ProjectsSection';
 import GetTradingPage from './components/GetTradingPage';
 import GetTubePage from './components/GetTubePage';
 import type { FileEntry, LogLine } from './types';
-import { filesToTree, getContainer, readAllFiles } from './lib/webcontainer';
+import {
+  clearProjectTree,
+  filesToTree,
+  getContainer,
+  readAllFiles,
+} from './lib/webcontainer';
 import type { GhUser } from './lib/github';
 import {
   base64ToBytes,
@@ -1164,6 +1169,10 @@ export default function App() {
         }
 
         setStatus(`mounting ${fetched.length} files…`);
+        // Stop any running dev server, then wipe the previous project's tree.
+        // mount() only merges — see clearProjectTree for the failure mode.
+        stopDev();
+        await clearProjectTree(c);
         await c.mount(filesToTree(fetched));
         setFiles(fetched);
         setDirtyPaths(new Set());
@@ -1479,6 +1488,8 @@ export default function App() {
         const fetched = await loadFromAgent(path);
         if (cancelled) return;
         if (fetched.length > 0) {
+          // Wipe the previous tree first — mount() only merges.
+          await clearProjectTree(c);
           await c.mount(filesToTree(fetched));
           setFiles(fetched);
           setDirtyPaths(new Set());

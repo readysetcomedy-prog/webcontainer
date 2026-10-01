@@ -109,3 +109,30 @@ export async function readAllFiles(
   }
   return acc;
 }
+
+// WebContainer.mount() MERGES into the existing filesystem — it never removes
+// files that aren't in the new tree. Without a wipe, the previous project's
+// files survive a project switch and leak into the next one. Nastiest case: a
+// repo whose Expo app lives in a folder named `app/`, followed by an Expo Router
+// project whose *routes* folder is also `app/` — the old nested project
+// (package.json, node_modules, its own routes) lands inside the new project's
+// routes dir, expo-router tries to bundle all of it, and Metro answers every
+// bundle request with a 500. A project that builds fine on its own then
+// "mysteriously" fails only in the preview.
+//
+// Root node_modules is kept: its lifecycle (wipe on project change, reuse on a
+// same-project re-pull) is owned by the install logic in App.
+export async function clearProjectTree(
+  container: WebContainer,
+  keep = new Set(['node_modules']),
+): Promise<void> {
+  const entries = await container.fs.readdir('/', { withFileTypes: true });
+  for (const entry of entries) {
+    if (keep.has(entry.name)) continue;
+    try {
+      await container.fs.rm(`/${entry.name}`, { recursive: true, force: true });
+    } catch {
+      // already gone / not removable — mount() will overwrite what it can
+    }
+  }
+}
