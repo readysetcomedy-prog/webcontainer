@@ -686,7 +686,10 @@ export default function App() {
   const stripAnsi = (s: string) =>
     // eslint-disable-next-line no-control-regex
     s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
-  const ERROR_HINT = /(^|\n)\s*(error:|SyntaxError:|TypeError:|Bundling failed|Failed to compile|Unable to resolve module|Cannot find module|Module not found)/i;
+  // Metro prefixes its lines — " ERROR  Error: Cannot find module …" and
+  // "Web Bundling failed 621ms …" — so the error keyword is NOT at line start.
+  // Allow an optional "ERROR"/"Web"/"Android"/"iOS" prefix before it.
+  const ERROR_HINT = /(^|\n)\s*(?:(?:ERROR|Web|Android|iOS)\s+)?(error:|SyntaxError:|TypeError:|Bundling failed|Failed to compile|Unable to resolve module|Cannot find module|Module not found)/i;
   const SUCCESS_HINT = /(Web Bundled|Bundled \d+ms|compiled successfully|ready in \d+ms|Local:\s+http)/i;
   const pipeDev = useCallback(
     (p: WebContainerProcess) => {
