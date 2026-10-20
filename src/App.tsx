@@ -786,6 +786,14 @@ export default function App() {
       if (!pkg) {
         log('No package.json found — skipping install/run.', 'info');
         setStatus('ready (no package.json)');
+        // Make this loud. A quiet terminal line + "ready" status reads as
+        // "the preview is broken" when the real cause is usually that the
+        // code lives on a different branch (e.g. an AI pushed the project to
+        // a feature branch and the default branch is still just a README).
+        notify(
+          'info',
+          'No package.json on this branch — nothing to run. If the code lives on another branch, switch to it with the branch picker.',
+        );
         return;
       }
       // Env is PER TARGET: the app dir's own saved env (falling back to the
@@ -968,7 +976,7 @@ export default function App() {
         setStatus('stopped');
       });
     },
-    [log, pipeProcess, appDirOverride],
+    [log, pipeProcess, appDirOverride, notify],
   );
 
   const stopDev = useCallback(() => {
